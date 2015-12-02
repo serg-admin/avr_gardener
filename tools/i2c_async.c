@@ -6,7 +6,6 @@
 
 unsigned char i2c_state;
 char i2c_dev_addr;
-unsigned char* i2c_result;
 unsigned char i2c_result_pos;
 unsigned char i2c_result_end_pos;
 unsigned char* i2c_buf;
@@ -17,7 +16,7 @@ unsigned char i2c_last_device_id;
 void (*i2c_callback)(unsigned char);
 
 void i2c_init(void) {
-  TWBR = 0xFF; //Делитель = TWBR * 2.
+  TWBR = 0x80; //Делитель = TWBR * 2.
   TWCR = 0; //Включить прерывание.
   i2c_state = I2C_STATE_FREE;
 }

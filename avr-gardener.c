@@ -1,32 +1,31 @@
 /*
  * Уход за цветами
  * 
- * Принимает через USART команды I2C шины в формате 
- *   IXXXXXXXX - где I префикс
- *                   XX - байты данных в шеснадцатиричном виде
+ * Принимает через USART команды I2C шины в формате:
+ *   IS1A1D1D2D3...S2A2D4D5D6...
+ * где:
+ *    I              - префикс
+ *    S1, S2,...,Sn - Размер текущего блока;
+ *    A1, A1,...,An - Адрес на шине I2C с флагом чтение/запись;
+ *    D1, D2,...,Dn - Отправляемые данные, или ожидаемый объем принимаемых данных.
+ *  Например I02D00002D107 - отправить байт 00 на устройство D0, прочитать 7-мь байт 
+ *  с устройства D1.
  */
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
-#define byte unsigned char
+#define F_CPU 16000000
+#include <util/delay.h>
+#include "avr-gardener.h"
 
 //Настройки магающей лампочки
 #define ledOn PORTB |= _BV(PINB5)  
 #define ledOff PORTB &= ~(_BV(PINB5))
 #define ledSw PORTB ^= _BV(PINB5)
 
-#define DS3231_ADDRESS 0xD0 // Модуль реального времени.
-#define AT24C32_ADDRESS 0xAE // eeprom 4 килобайта.
-#define I2C_BUF_SIZE 16 // Размер буфер для отладки и приема данных через I2C шину
-unsigned char ds3231_buf[I2C_BUF_SIZE]; // Буфер для отладки и приема данных через I2C шину
-
-#define HEX_CMD_MAX_SIZE 16 // Длина шеснадцатиричной команды приходящей с USART (без учета префикса)
-#define HEX_CMD_RECIVE_MAX_SIZE 16 // Длина шеснадцатиричной команды приходящей с USART (без учета префикса)
-
-
-#include "tools/i2c_async.h"
 #include "tools/uart_async.h"
+#include "tools/i2c_async.h"
 #include "tools/queue_tasks.h"
 
 byte decToBcd(byte val){
@@ -59,52 +58,80 @@ unsigned char hexToCharOne(char c) {
   }
 }
 
-byte command_I2C_buf[HEX_CMD_MAX_SIZE];
-struct str_commandI2C {
-  byte data[HEX_CMD_MAX_SIZE];
-  byte size;
-  byte reciveBuf[HEX_CMD_RECIVE_MAX_SIZE];
-  byte reciveBufSize;
-} commandI2CData;
+/**
+ * @brief Преобразует строку HEX символов (0-F) в массив байт.
+ * @param str  строка HEX символов
+ * @param result  указатель на буфер для сохранения результата.
+ * @return возвращает длинну полученного массива.
+ */
+byte parse_HEX_string(char* str, byte* result) {
+  byte pos = 0;
+  byte tmp;
+  while((str[pos*2] != 0) && 
+          (pos < HEX_CMD_MAX_SIZE)) {
+      result[pos] = hexToCharOne(str[pos*2]);
+      tmp = hexToCharOne(str[pos*2+1]);
+      if ((tmp & 0xF0) || (result[pos] & 0xF0)) {
+        return 0;
+      }
+      result[pos] <<= 4;
+      result[pos] |= tmp;
+      pos++;
+    }
+  return pos;
+}
 
-// Идентификаторы задач для главного цикла
-#define COMMAND_INOUT_I2C 0x30
-
+/**
+ * @brief Разбирает строковый сценарий и отправляет его на I2C шину
+ * @param str Сценрий в ввиде IS1A1D1D2D3...S2A2D4D5D6...
+ *    I              - префикс
+ *    S1, S2,...,Sn - Размер текущего блока;
+ *    A1, A1,...,An - Адрес на шине I2C с флагом чтение/запись;
+ *    D1, D2,...,Dn - Отправляемые данные, или ожидаемый объем принимаемых данных.
+ *  Например I02D00002D107 - отправить байт 00 на устройство D0, прочитать 7-мь байт 
+ *  с устройства D1.
+ */
 void commands_reciver(char* str) {
   byte pos = 0;
   byte tmp;
-  commandI2CData.reciveBufSize = 0;
-  if (str[0] == 'I') {
-    while((str[pos*2+1] != 0) && 
-          (pos < HEX_CMD_MAX_SIZE)) {
-      commandI2CData.data[pos] = hexToCharOne(str[pos*2+1]);
-      tmp = hexToCharOne(str[pos*2+2]);
-      if ((tmp & 0xF0) || (commandI2CData.data[pos] & 0xF0)) {
+  byte cmd[3];
+  if (str[0] == 'W') { // Спец задания
+    pos = parse_HEX_string(&str[1], cmd);
+    if (! pos) {
+      uart_writeln("PARS ERR");
+      return;
+    }
+    uart_writelnHEXEx(cmd, 3);
+    switch (cmd[0]) {
+      case DO_COMMAND_CLEAN_24C32N :
+        uart_writeln("E0");
+        queue_putTask2b(cmd[0], 0, 0);
+        break;
+      default : queue_putTask2b(cmd[0], cmd[1], cmd[2]);
+    }
+  } else {
+    if (str[0] == 'I') {
+      commandI2CData.reciveBufSize = 0;
+      pos = parse_HEX_string(str + 1, commandI2CData.data);
+      if (! pos) {
         uart_writeln("PARS ERR");
         return;
       }
-      commandI2CData.data[pos] <<= 4;
-      commandI2CData.data[pos] |= tmp;
-      pos++;
-    }
-    tmp = 1;
-    while(tmp < pos) {
-      if (commandI2CData.data[tmp] & 1) {// Если I2C адрес для чтения
-        commandI2CData.reciveBufSize += commandI2CData.data[tmp+1];
+      tmp = 1;
+      while(tmp < pos) {
+        if (commandI2CData.data[tmp] & 1) {// Если I2C адрес для чтения
+          commandI2CData.reciveBufSize += commandI2CData.data[tmp+1];
+        }
+        tmp += commandI2CData.data[tmp-1] + 1;
       }
-      tmp += commandI2CData.data[tmp-1] + 1;
-    }
-    commandI2CData.size = pos; // Размер буфера
-    queue_putTask(COMMAND_INOUT_I2C);
-  } else uart_writeln("Unknown command.");
+      commandI2CData.size = pos; // Размер буфера
+      queue_putTask(DO_COMMAND_INOUT_I2C);
+    } else uart_writeln("Unknown command.");
+  }
 }
 
-byte diff[2];
-
 ISR (INT0_vect) {
-  //uart_writeln("INT0");
-  diff[0] = TCNT1H;
-  diff[1] = TCNT1L;
+
 }
 
 // Прерывание переполнения таймера
@@ -153,12 +180,44 @@ void callBackForI2CCommand(unsigned char result) {
   }
 }
 
-void init_int0(void) {
+void int0_init(void) {
   PORTD |= _BV(PD2); // подключаем pull-up резистор
   EIMSK |= _BV(INT0); // Активируем прерывание
   // Срабатывание по краю падения уровня
   EICRA |= _BV(ISC01);
   EICRA &= ~(_BV(ISC00));
+}
+
+void eeprom_24C32N_clean_callBack(byte result) {
+  uint16_t addr = (i2c_result[0] * 256) + i2c_result[1];
+  if (addr > 4090) {
+    uart_write("Stop at "); uart_writelnHEXEx(i2c_result, 2);
+    return;
+  }
+    switch(result) {
+    case TW_MT_DATA_ACK : 
+      uart_writeln("OK");
+      break;
+    default : 
+      uart_write("ERROR ");
+      uart_writelnHEX(result);
+  }
+  _delay_ms(50);
+  eeprom_24C32N_clean(i2c_result);
+}
+
+byte data[20];
+
+void eeprom_24C32N_clean(byte* adr) {
+  //Очистить 32 байта
+  //uart_write("Start at "); uart_writelnHEXEx(adr, 2);
+  data[0] = 19; data[1] = AT24C32_ADDRESS; data[2] = adr[0]; data[3] = adr[1]; 
+  data[4] = 0; data[5] = 0; data[6] = 0; data[7] = 0; data[8] = 0; data[9] = 0; data[10] = 0; data[11] = 0; 
+  data[12] = 0; data[13] = 0; data[14] = 0; data[15] = 0; data[16] = 0; data[17] = 0; data[18] = 0; data[19] = 0; 
+  //data[20] = {19, AT24C32_ADDRESS, adr[0], adr[1] ,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0};
+  adr[1] += 16;
+  if (adr[1] < 16) adr[0]++;
+  i2c_inout(data, 20, adr, &eeprom_24C32N_clean_callBack);
 }
 
 int main(void) {
@@ -168,17 +227,18 @@ int main(void) {
   uart_async_init(); // Прерывания для ввода/вывода через USART
   i2c_init();
   queue_init();  // Очередь диспетчера задач (главный цикл)
-  //init_int0(); // Прерывание INT0 по спадающей границе. Для таймера
-  sei(); // Разрешить прерывания.
+  int0_init(); // Прерывание INT0 по спадающей границе. Для RTC ZA-042.
+  sei();
   uart_readln(&commands_reciver);
   uart_writeln("start");
   // Бесконечный цикл с энергосбережением.
   for(;;) {
     switch(queue_getTask()) {
-      case COMMAND_INOUT_I2C : // Чтение данных из I2C и вывод в USART
-        //uart_writelnHEXEx(commandI2CData.data, commandI2CData.size);
+      case DO_COMMAND_INOUT_I2C : // Чтение данных из I2C и вывод в USART
         i2c_inout(commandI2CData.data, commandI2CData.size, commandI2CData.reciveBuf, &callBackForI2CCommand);
         break;
+      case DO_COMMAND_CLEAN_24C32N : // Очистка eeprom
+        eeprom_24C32N_clean(queue_tasks_current.data);
       default : sleep_mode();
     }
   }

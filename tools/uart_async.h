@@ -6,6 +6,8 @@
              погрешности несущей частоты что делает невозможной работу порта.
              Смотрите документацию на микропроцессор
 */
+//#ifndef __UART_ASYNC_H_
+#define __UART_ASYNC_H_
 
 #define FOSC 16000000 // Clock Speed
 
@@ -38,3 +40,5 @@ void uart_writelnHEX(unsigned char c);
 // Вычитывает с порта строку до окончания строки, и возвращает в callBack функцию.
 // Строка завершается нулем. CallBack функция будет вызываться для каждой полученной строки.
 void uart_readln(void (*callback)(char*));
+
+//#endif
