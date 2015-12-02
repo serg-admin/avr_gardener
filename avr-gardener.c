@@ -22,6 +22,7 @@
 unsigned char ds3231_buf[I2C_BUF_SIZE]; // Буфер для отладки и приема данных через I2C шину
 
 #define HEX_CMD_MAX_SIZE 16 // Длина шеснадцатиричной команды приходящей с USART (без учета префикса)
+#define HEX_CMD_RECIVE_MAX_SIZE 16 // Длина шеснадцатиричной команды приходящей с USART (без учета префикса)
 
 
 #include "tools/i2c_async.h"
@@ -60,38 +61,41 @@ unsigned char hexToCharOne(char c) {
 
 byte command_I2C_buf[HEX_CMD_MAX_SIZE];
 struct str_commandI2C {
-  byte device_id;
-  byte* data;
+  byte data[HEX_CMD_MAX_SIZE];
   byte size;
+  byte reciveBuf[HEX_CMD_RECIVE_MAX_SIZE];
+  byte reciveBufSize;
 } commandI2CData;
 
 // Идентификаторы задач для главного цикла
-#define COMMAND_SEND_I2C 0x30
-#define COMMAND_RECIVE_I2C 0x31
+#define COMMAND_INOUT_I2C 0x30
 
 void commands_reciver(char* str) {
   byte pos = 0;
   byte tmp;
+  commandI2CData.reciveBufSize = 0;
   if (str[0] == 'I') {
     while((str[pos*2+1] != 0) && 
-          (pos < (HEX_CMD_MAX_SIZE-2/*два байта для вычисляемых параметров*/))) {
-      command_I2C_buf[pos] = hexToCharOne(str[pos*2+1]);
+          (pos < HEX_CMD_MAX_SIZE)) {
+      commandI2CData.data[pos] = hexToCharOne(str[pos*2+1]);
       tmp = hexToCharOne(str[pos*2+2]);
-      if ((tmp > 0xF) || (command_I2C_buf[pos] > 0xF)) {
+      if ((tmp & 0xF0) || (commandI2CData.data[pos] & 0xF0)) {
         uart_writeln("PARS ERR");
         return;
       }
-      command_I2C_buf[pos] <<= 4;
-      command_I2C_buf[pos] |= tmp;
+      commandI2CData.data[pos] <<= 4;
+      commandI2CData.data[pos] |= tmp;
       pos++;
     }
-    commandI2CData.device_id = command_I2C_buf[0]; //Адрес устройства
-    commandI2CData.data = (command_I2C_buf+1); //Массив для отправки
-    commandI2CData.size = pos - 1; //Количество отправляемых байт
-    if (command_I2C_buf[0] & 1) {
-      commandI2CData.size = command_I2C_buf[1];
-      queue_putTask(COMMAND_RECIVE_I2C);
-    } else queue_putTask(COMMAND_SEND_I2C);
+    tmp = 1;
+    while(tmp < pos) {
+      if (commandI2CData.data[tmp] & 1) {// Если I2C адрес для чтения
+        commandI2CData.reciveBufSize += commandI2CData.data[tmp+1];
+      }
+      tmp += commandI2CData.data[tmp-1] + 1;
+    }
+    commandI2CData.size = pos; // Размер буфера
+    queue_putTask(COMMAND_INOUT_I2C);
   } else uart_writeln("Unknown command.");
 }
 
@@ -111,47 +115,11 @@ ISR (TIMER1_OVF_vect) {
   ledSw;
   switch (timer1_position) {
     case 0 : 
-      uart_writeln("T1 POS = 0");
-      commands_reciver("ID000");
+      commands_reciver("I02D00002D107");
       break;
-    case 1 : 
-      uart_writeln("T1 POS = 1");
-      commands_reciver("ID105");
-      uart_writelnHEXEx(diff, 2);
-      break;
-    case 60 : 
-      commands_reciver("ID000");
-      break;
-    case 61 : 
-      commands_reciver("ID105");
-      uart_writelnHEXEx(diff, 2);
-      break;
-    case 120 : 
-      commands_reciver("ID000");
-      break;
-    case 121 : 
-      commands_reciver("ID105");
-      uart_writelnHEXEx(diff, 2);
-      break;    
-    case 180 : 
-      commands_reciver("ID000");
-      break;
-    case 181 : 
-      commands_reciver("ID105");
-      uart_writelnHEXEx(diff, 2);
-      break;
-    case 240 : 
-      commands_reciver("ID000");
-      break;
-    case 241 : 
-      commands_reciver("ID105");
-      break;      
   }
-  /*if (timer1_doing == 0) {
-    queue_putTask(DO_TIMER1_OVF);
-    timer1_doing = 1;
-  }*/
   timer1_position++;
+  if (timer1_position > 59) timer1_position = 0;
   sei();
 }
 
@@ -177,7 +145,7 @@ void callBackForI2CCommand(unsigned char result) {
       uart_writeln("OK");
       break;
     case TW_MR_DATA_NACK : //Результат получен
-      uart_writelnHEXEx(commandI2CData.data, commandI2CData.size);
+      uart_writelnHEXEx(commandI2CData.reciveBuf, commandI2CData.reciveBufSize);
       break;
     default : 
       uart_write("ERROR ");
@@ -200,27 +168,16 @@ int main(void) {
   uart_async_init(); // Прерывания для ввода/вывода через USART
   i2c_init();
   queue_init();  // Очередь диспетчера задач (главный цикл)
-  init_int0(); // Прерывание INT0 по спадающей границе. Для таймера
+  //init_int0(); // Прерывание INT0 по спадающей границе. Для таймера
   sei(); // Разрешить прерывания.
   uart_readln(&commands_reciver);
   uart_writeln("start");
   // Бесконечный цикл с энергосбережением.
   for(;;) {
     switch(queue_getTask()) {
-      /*case DO_TIMER1_OVF :
-        i2c_init();  // Тупой сброс I2C шины. todo - сделать тест на залипание шины.
-        break;*/
-      case COMMAND_SEND_I2C : // Отправка данных из USART команды в I2C
-        i2c_send(commandI2CData.device_id, // Адресс.
-                 commandI2CData.data, // Буфер.
-                 commandI2CData.size , // Количество.
-                 &callBackForI2CCommand);
-        break;
-      case COMMAND_RECIVE_I2C : // Чтение данных из I2C и вывод в USART
-        i2c_recive(commandI2CData.device_id, // Адресс.
-                 commandI2CData.data, // Буфер.
-                 commandI2CData.size, // Количество.
-                 &callBackForI2CCommand);
+      case COMMAND_INOUT_I2C : // Чтение данных из I2C и вывод в USART
+        //uart_writelnHEXEx(commandI2CData.data, commandI2CData.size);
+        i2c_inout(commandI2CData.data, commandI2CData.size, commandI2CData.reciveBuf, &callBackForI2CCommand);
         break;
       default : sleep_mode();
     }

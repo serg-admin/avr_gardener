@@ -86,8 +86,9 @@ void uart_write(char* s) {
 
 // Отправляет строку в очередь USART. В случае если очередь занята - ждет.
 void uart_writeln(char* s) {
-    uart_write(s);
-    uart_write("\n\r");
+  uart_write(s);
+  uart_putChar('\n');
+  uart_putChar('\r');
 }
 
 char uart_halfchar_to_hex(unsigned char c) {
@@ -113,33 +114,21 @@ char uart_halfchar_to_hex(unsigned char c) {
 }
 
 void _uart_writeHEX(unsigned char c) {
-  char r[3];
-  r[0] = uart_halfchar_to_hex((c & 0xF0) / 16);
-  r[1] = uart_halfchar_to_hex(c & 0x0F) ;
-  r[2] = 0;
-  uart_write(r);
+  uart_putChar(uart_halfchar_to_hex(c >> 4));
+  uart_putChar(uart_halfchar_to_hex(c & 0x0F));
 }
 
 void uart_writelnHEXEx(unsigned char* c, unsigned char size) {
-  char r[3];
   unsigned char i;
-  r[0] = '0';
-  r[1] = 'x';
-  r[2] = 0;
-  uart_write(r);
+  uart_write("0x");
   for(i=0; i < size; i++) {
     _uart_writeHEX(c[i]);
-    uart_write(" ");
+    uart_putChar(' ');
   }
-  uart_writeln(&r[2]);
+  uart_putChar('\n');
+  uart_putChar('\r');
 }
 
 void uart_writelnHEX(unsigned char c) {
-  char r[5];
-  r[0] = '0';
-  r[1] = 'x';
-  r[2] = uart_halfchar_to_hex((c & 0xF0) / 16);
-  r[3] = uart_halfchar_to_hex(c & 0x0F) ;
-  r[4] = 0;
-  uart_writeln(r);
+  uart_writelnHEXEx(&c, 1);
 }
