@@ -202,24 +202,22 @@ void eeprom_24C32N_clean_callBack(byte result) {
       uart_write("ERROR ");
       uart_writelnHEX(result);
   }
-  _delay_ms(50);
+  _delay_ms(1);
+  while(i2c_state != I2C_STATE_FREE) sleep_mode();
   eeprom_24C32N_clean(i2c_result);
 }
 
-
-byte data[20];
-
-
 void eeprom_24C32N_clean(byte* adr) {
-  //Очистить 32 байта
+  //Очистить 8 байт
   //uart_write("Start at "); uart_writelnHEXEx(adr, 2);
-  data[0] = 19; data[1] = AT24C32_ADDRESS; data[2] = adr[0]; data[3] = adr[1]; 
-  data[4] = 0; data[5] = 0; data[6] = 0; data[7] = 0; data[8] = 0; data[9] = 0; data[10] = 0; data[11] = 0; 
-  data[12] = 0; data[13] = 0; data[14] = 0; data[15] = 0; data[16] = 0; data[17] = 0; data[18] = 0; data[19] = 0; 
-  //data[20] = {19, AT24C32_ADDRESS, adr[0], adr[1] ,0,0,0,0,0,0,0,0 ,0,0,0,0,0,0,0,0};
-  adr[1] += 16;
-  if (adr[1] < 16) adr[0]++;
-  i2c_inout(data, 20, adr, &eeprom_24C32N_clean_callBack);
+  commandI2CData.data[0] = 11; // Адрес устройства + 2 -байта номер ячейки + 8 байт нули = 11 
+  commandI2CData.data[1] = AT24C32_ADDRESS;
+  commandI2CData.data[2] = adr[0];
+  commandI2CData.data[3] = adr[1];
+  for(commandI2CData.size = 4; commandI2CData.size < (4 + 8); commandI2CData.size++ ) commandI2CData.data[commandI2CData.size] = 0;
+  adr[1] += 8;
+  if (adr[1] < 8) adr[0]++;
+  i2c_inout(commandI2CData.data, commandI2CData.size, adr, &eeprom_24C32N_clean_callBack);
 }
 
 int main(void) {
@@ -229,7 +227,7 @@ int main(void) {
   uart_async_init(); // Прерывания для ввода/вывода через USART
   i2c_init();
   queue_init();  // Очередь диспетчера задач (главный цикл)
-  int0_init(); // Прерывание INT0 по спадающей границе. Для RTC ZA-042.
+  //int0_init(); // Прерывание INT0 по спадающей границе. Для RTC ZA-042.
   sei();
   uart_readln(&commands_reciver);
 #ifdef _DEBUG

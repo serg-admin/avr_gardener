@@ -1,10 +1,9 @@
 #include <avr/io.h>
 #include <util/twi.h>
 #include <avr/interrupt.h>
-//#include "uart_async.h"
+#include "uart_async.h"
 #include "i2c_async.h"
 
-unsigned char i2c_state;
 char i2c_dev_addr;
 unsigned char i2c_result_pos;
 unsigned char i2c_result_end_pos;
@@ -16,10 +15,21 @@ unsigned char i2c_last_device_id;
 void (*i2c_callback)(unsigned char);
 
 void i2c_init(void) {
-  TWBR = 0x80; //Делитель = TWBR * 2.
-  TWCR = 0; //Включить прерывание.
+  // Настраеваем прерывание ножки SDA, для ожидания установки состояния STOP.
+  DDRC  &= ~(_BV(DDC4));
+  DDRC  &= ~(_BV(DDC5));
+  PORTC |= _BV(PC4) | _BV(PC5);
+  PCICR |= _BV(PCIE1);
+  PCMSK1 &= ~(_BV(PCINT12));
+  PCMSK1 &= ~(_BV(PCINT13));
+ // SDA_WAIT_LEVEL;
+  
+  TWBR = 0x051/100; // Делитель = TWBR * 2.
+  TWCR = 0; // Включить прерывание.
   i2c_state = I2C_STATE_FREE;
 }
+
+
 
 /**
  * @brief Осущетвляет отправку/прием/рестрат I2C шины в соответсвии 
@@ -53,33 +63,11 @@ unsigned char i2c_inout(unsigned char* script,
   return I2C_STATE_FREE;
 }
 
-unsigned char i2c_send(char addr, unsigned char* buf, unsigned char size, void (*callback)(unsigned char)) {
-  if (i2c_state) return i2c_state;
-  i2c_dev_addr = addr;
-  i2c_buf = buf;
-  i2c_buf_pos = 0;
-  i2c_size = size;
-  i2c_callback = callback;
-  i2c_state = I2C_STATE_SEND;
-  TWCR = _BV(TWINT) | _BV(TWSTA) | _BV(TWEN) | _BV(TWIE); // Send START condition.
-  return I2C_STATE_FREE;
-}
-
-unsigned char i2c_recive( char addr, unsigned char* buf, unsigned char size, void (*callback)(unsigned char)) {
-  if (i2c_state) return i2c_state;
-  i2c_dev_addr = addr;
-  i2c_buf = buf;
-  i2c_buf_pos = 0;
-  i2c_size = size;
-  i2c_callback = callback;
-  i2c_state = I2C_STATE_RECIVE;
-  TWCR = _BV(TWINT) | _BV(TWSTA) | _BV(TWEN) | _BV(TWIE); // Send START condition.
-  return I2C_STATE_FREE;
-}
-
 void i2c_stop(unsigned char state) {
   TWCR = _BV(TWINT) | _BV(TWEN) | _BV(TWSTO); // Завершение передача
-  i2c_state = I2C_STATE_FREE;
+  SDA_WAIT_LEVEL;
+  i2c_state = I2C_STATE_STOPPING;
+  sei();
   if (i2c_callback != 0) i2c_callback(state);
 }
 
@@ -162,19 +150,13 @@ void i2c_inout_isp(unsigned char state) {
       if (i2c_result_pos < i2c_result_end_pos) {
         TWDR = i2c_last_device_id;
         TWCR = _BV(TWINT) | _BV(TWSTA) | _BV(TWEN) | _BV(TWIE); // Рестарт для следующего байта
-      } else {
-        TWCR = _BV(TWINT) | _BV(TWEN) | _BV(TWSTO); // Завершение передача
-        i2c_state = I2C_STATE_FREE;
-        i2c_callback(state);
-      }
+      } else i2c_stop(state);
       break;
-    default :
-      TWCR = 0; // Завершение передача
-      i2c_state = I2C_STATE_FREE;
-      i2c_callback(state);
+    default : i2c_stop(state);
   }
 }
 
+// Обработка событий I2C
 ISR (TWI_vect) {
   cli();
   if (I2C_STATE_INOUT) i2c_inout_isp(TWSR & 0xF8);
@@ -182,5 +164,13 @@ ISR (TWI_vect) {
     TWCR = 0; // Завершение передача
     i2c_state = I2C_STATE_FREE;
   }
+  sei();
+}
+
+// Ожидание установки уровня SDA при остановке.
+ISR (PCINT1_vect) {
+  cli();
+  PCMSK1 &= ~(_BV(PCINT12));
+  if (i2c_state == I2C_STATE_STOPPING) i2c_state = I2C_STATE_FREE;
   sei();
 }

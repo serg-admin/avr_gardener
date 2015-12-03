@@ -36,6 +36,6 @@ clean:
 	rm -f tools/*.o
 
 pro_mini: $(programm).hex
-	avrdude -c arduino -F -P /dev/ttyUSB0 -p $(mcu) -b 57600  -U flash:w:$(PRG).hex:i
+	avrdude -c arduino -F -P /dev/ttyUSB0 -p $(mcu) -b 57600  -U flash:w:$(programm).hex:i
 leonardo: $(programm).hex
-	avrdude -c avr109 -F -P /dev/ttyACM1 -p m32u4 -U flash:w:$(PRG).hex:i
+	avrdude -c avr109 -F -P /dev/ttyACM1 -p m32u4 -U flash:w:$(programm).hex:i
