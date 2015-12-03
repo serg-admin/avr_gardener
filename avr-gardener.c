@@ -206,7 +206,9 @@ void eeprom_24C32N_clean_callBack(byte result) {
   eeprom_24C32N_clean(i2c_result);
 }
 
+
 byte data[20];
+
 
 void eeprom_24C32N_clean(byte* adr) {
   //Очистить 32 байта
@@ -230,7 +232,9 @@ int main(void) {
   int0_init(); // Прерывание INT0 по спадающей границе. Для RTC ZA-042.
   sei();
   uart_readln(&commands_reciver);
+#ifdef _DEBUG
   uart_writeln("start");
+#endif
   // Бесконечный цикл с энергосбережением.
   for(;;) {
     switch(queue_getTask()) {
