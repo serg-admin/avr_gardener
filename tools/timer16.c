@@ -33,6 +33,7 @@ void timer1PutTask(uint16_t delay, void (*func)(byte*), byte* data) {
       A.data = data;
       delay = TCNT1 + delay;
       if (delay < TCNT_MIN) delay += TCNT_MIN;
+      TIFR1 |= _BV(OCF1A);
       OCR1A = delay;
       TIMER1_A_EN;
       //uart_writelnHEX(TIMSK1);

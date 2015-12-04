@@ -18,7 +18,7 @@ void (*i2c_callback)(unsigned char);
 
 void set_free(byte* data) {
   i2c_state = I2C_STATE_FREE;
-  uart_writeln("free");
+  //uart_writeln("free");
 }
 
 /**
@@ -76,8 +76,8 @@ void i2c_stop(unsigned char state) {
   //SDA_WAIT_LEVEL;
   i2c_state = I2C_STATE_STOPPING;
   sei();
-  timer1PutTask(30000, &set_free, 0); // Задержка примерно 1/62500 * 30 секунды
-  uart_writelnHEX(TIMSK1);
+  timer1PutTask(100, &set_free, 0); // Задержка примерно 1/62500 * 30 секунды
+  //uart_writelnHEX(TIMSK1);
   //set_free(0);
   if (i2c_callback != 0) i2c_callback(state);
 }
