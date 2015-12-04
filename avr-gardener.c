@@ -19,14 +19,10 @@
 #include <util/delay.h>
 #include "avr-gardener.h"
 
-//Настройки магающей лампочки
-#define ledOn PORTB |= _BV(PINB5)  
-#define ledOff PORTB &= ~(_BV(PINB5))
-#define ledSw PORTB ^= _BV(PINB5)
-
 #include "tools/uart_async.h"
 #include "tools/i2c_async.h"
 #include "tools/queue_tasks.h"
+#include "tools/timer16.h"
 
 byte decToBcd(byte val){
   return ( (val/10*16) + (val%10) );
@@ -134,36 +130,10 @@ ISR (INT0_vect) {
 
 }
 
-// Прерывание переполнения таймера
-ISR (TIMER1_OVF_vect) {
-  static byte timer1_position = 0; // Переключатель задач таймера
-  cli();
-  TCNT1 += 3036; // Корректировка времени срабатывания преполнения к одной секунде.
-  ledSw;
-  switch (timer1_position) {
-    case 0 : 
-      commands_reciver("I02D00002D107");
-      break;
-  }
-  timer1_position++;
-  if (timer1_position > 59) timer1_position = 0;
-  sei();
-}
-
 ISR (BADISR_vect) {
   cli();
   TWSR = 0;
   sei();
-}
-
-void timer_init() {
-  // Делитель счетчика 256 (CS10=0, CS11=0, CS12=1).
-  // 256 * 65536 = 16 777 216 (тактов)
-  TCCR1B |= _BV(CS12);
-  //TCCR1B |= _BV(CS10); //Включить для мигания  4 -ре секунды
-  // Включить обработчик прерывания переполнения счетчика таймера.
-  TIMSK1 = _BV(TOIE1);
-  // PRR &= ~(_BV(PRTIM1));
 }
 
 void callBackForI2CCommand(unsigned char result) {
@@ -202,7 +172,7 @@ void eeprom_24C32N_clean_callBack(byte result) {
       uart_write("ERROR ");
       uart_writelnHEX(result);
   }
-  _delay_ms(1);
+  //_delay_ms(1);
   while(i2c_state != I2C_STATE_FREE) sleep_mode();
   eeprom_24C32N_clean(i2c_result);
 }
