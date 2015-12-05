@@ -101,7 +101,6 @@ void commands_reciver(char* str) {
     uart_writelnHEXEx(cmd, 3);
     switch (cmd[0]) {
       case DO_COMMAND_CLEAN_24C32N :
-        uart_writeln("E0");
         queue_putTask2b(cmd[0], 0, 0);
         break;
       default : queue_putTask2b(cmd[0], cmd[1], cmd[2]);
@@ -191,6 +190,72 @@ void eeprom_24C32N_clean(byte* adr) {
   i2c_inout(commandI2CData.data, commandI2CData.size, adr, &eeprom_24C32N_clean_callBack);
 }
 
+void relay_touch(byte block, byte touching, byte values) {
+  if (block == 1) {
+    byte p;
+    DDRB |= 0b00000011;
+    for(p = 1; p < 9 ; p <<= 1) {
+      if (p & touching) {
+        switch(p) {
+          case 1 : 
+            if (values & p) PORTB &= ~(_BV(PORTB0));
+            else PORTB |= _BV(PORTB0);
+            break;
+          case 2 :
+            if (values & p) PORTB &= ~(_BV(PORTB1));
+            else PORTB |= _BV(PORTB1);
+            break;
+          case 4 :
+            break;
+          case 8 : 
+            break; 
+        }
+      }
+    }
+  }
+}
+
+struct rec_alarm alarms[10];
+
+void callBackForLoadAlarm(unsigned char result) {
+  switch(result) {
+    case TW_MR_DATA_NACK : //Результат получен
+      uart_writelnHEX(alarms[0].alarm_time.minut);
+      uart_writelnHEX(alarms[0].alarm_time.hour);
+      uart_writelnHEX(alarms[0].alarm_time.dayOfMonth);
+      uart_writelnHEX(alarms[0].flags.b);
+      uart_writelnHEX(alarms[0].task.task_id);
+      if (alarms[0].flags.f.reserved1) uart_write("1"); else uart_write("0");
+      if (alarms[0].flags.f.minut) uart_write("1"); else uart_write("0");
+      if (alarms[0].flags.f.hour) uart_write("1"); else uart_write("0");
+      if (alarms[0].flags.f.dayOfMonth) uart_write("1"); else uart_write("0");
+      if (alarms[0].flags.f.month) uart_write("1"); else uart_write("0");
+      if (alarms[0].flags.f.year) uart_write("1"); else uart_write("0");
+      if (alarms[0].flags.f.dayOfWeek) uart_write("1"); else uart_write("0");
+      if (alarms[0].flags.f.enable) uart_writeln("1"); else uart_writeln("0");
+      break;
+    default : 
+      uart_write("ERROR ");
+      uart_writelnHEX(result);
+  }
+}
+
+void zs042LoadAlarm(byte n, struct rec_alarm *alarm) {
+  // Установка адреса
+  commandI2CData.data[0] = 03; // Размер блока установки адреса
+  commandI2CData.data[1] = AT24C32_ADDRESS; // Адресс для записи
+  // Вычисляем адрес будильника 
+  uint16_t addr = AT24C32_ALARMS_BLOCK_START + AT24C32_ALARMS_BLOCK_BYTES_BY_RECORD * n;
+  commandI2CData.data[2] = addr >> 8;
+  commandI2CData.data[3] = addr & 0x00FF;
+  // Блок чтения с I2C
+  commandI2CData.data[4] = 02; // Размер блока чтения
+  commandI2CData.data[5] = AT24C32_ADDRESS + 1; // Адресс для чтения
+  commandI2CData.data[6] = 16;
+  commandI2CData.size = 7;
+  i2c_inout(commandI2CData.data, commandI2CData.size, (byte*) &alarms[0], &callBackForLoadAlarm);
+}
+
 int main(void) {
   // Разрешить светодиод arduino pro mini.
   DDRB |= _BV(DDB5);
@@ -212,6 +277,13 @@ int main(void) {
         break;
       case DO_COMMAND_CLEAN_24C32N : // Очистка eeprom
         eeprom_24C32N_clean(queue_tasks_current.data);
+        break;
+      case DO_TOUCH_RELAY_A : // Включение/выключение блока реле.
+        relay_touch(1, queue_tasks_current.data[0], queue_tasks_current.data[1]);
+        break;
+      case DO_LOAD_ALARM :
+        zs042LoadAlarm(queue_tasks_current.data[0], &alarms[0]);
+        break;
       default : sleep_mode();
     }
   }

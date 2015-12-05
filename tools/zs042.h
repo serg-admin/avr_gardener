@@ -1,6 +1,7 @@
 #ifndef __ZS042_H_
 #define __ZS042_H_ 1
-#include <timer16.h>
+#include "timer16.h"
+#include "queue_tasks.h"
 
 // Идентификаторы  I2C
 #define DS3231_ADDRESS 0xD0 // Модуль реального времени.
@@ -9,9 +10,9 @@
 // ==== Структура памяти AT24C32 ====
 
 // Блок ежеминутных задач
-// Представляет собой массив структур <un_alarm_to_array> из timer16.h
+// Представляет собой массив структур <rec_alarm_task> из timer16.h
 #define AT24C32_MINUTELE_BLOCK_START 0x00
-#define AT24C32_MINUTELE_BLOCK_LEN sizeof(un_alarm_to_array)*0x20
+#define AT24C32_MINUTELE_BLOCK_LEN sizeof(struct rec_task)*0x20
 
 // Блок "будильников"
 // Представляет собой массив усеченных структур <rec_alarm> из timer16.h

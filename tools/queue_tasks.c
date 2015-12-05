@@ -1,7 +1,7 @@
 #include "queue_tasks.h"
 #include <avr/interrupt.h>
 // Очередь задачь
-struct rec_alarm_task queue_tasks[QUEUE_TASKS_SIZE];
+struct rec_task queue_tasks[QUEUE_TASKS_SIZE];
 unsigned char queue_tasks_rpos;
 unsigned char queue_tasks_wpos;
 
