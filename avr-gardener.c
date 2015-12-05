@@ -23,6 +23,7 @@
 #include "tools/i2c_async.h"
 #include "tools/queue_tasks.h"
 #include "tools/timer16.h"
+#include "tools/zs042.h"
 
 byte decToBcd(byte val){
   return ( (val/10*16) + (val%10) );

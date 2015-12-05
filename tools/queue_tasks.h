@@ -7,7 +7,8 @@
 #define DO_TIMER1_OVF 0x01
 #define DO_REQUEST_RTC_DATA_START 0x20
 #define DO_REQUEST_RTC_DATA_END 0x21
-struct rec_alarm_task {
+
+struct rec_task {
   byte task_id;
   byte data[2];
 } queue_tasks_current;

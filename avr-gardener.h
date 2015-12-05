@@ -13,47 +13,4 @@ struct rec_str_commandI2C {
   byte reciveBufSize;
 } commandI2CData;
 
-struct rec_data_time { // 7 байт
-  byte second;
-  byte minut;
-  byte hour;
-  byte dayOfMonth;
-  byte month;
-  byte year;
-  byte dayOfWeek;
-} current_time;
-
-struct rec_byte_time_flags {
-  // Флажки - какие поля проверять для срабатывания
-  byte second:1;
-  byte minut:1;
-  byte hour:1;
-  byte dayOfMonth:1;
-  byte month:1;
-  byte year:1;
-  byte dayOfWeek:1;
-  byte enable:1;  
-};
-
-union un_byte_time_flags {
-  byte b;
-  struct rec_byte_time_flags f;
-};
-
-struct rec_alarm { // 24 байта
-  struct rec_data_time alarm_time; // 7 байт
-  struct rec_data_time last_alarm_time; // 7 байт
-  union un_byte_time_flags flags; // 1 байт. Флажки - какие поля проверять для срабатывания
-  byte reserv1;
-  struct rec_alarm_task task;
-  //==  Не сохраняемые данные ===
-  struct rec_data_time next_alarm_time; // Храним только в памяти
-  byte num; // номер будильника
-};
-
-union un_alarm_to_array {
-  struct rec_alarm alarm;
-  byte arr[32];
-};
-
 extern void eeprom_24C32N_clean(byte* adr);

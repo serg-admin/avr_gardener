@@ -6,8 +6,6 @@
 #define I2C_STATE_INOUT 0x03
 #define SDA_WAIT_LEVEL PCMSK1 |= _BV(PCINT12)
 #define SDA_CHECK_LEVEL PORTC &= _BV(PC4)
-#define DS3231_ADDRESS 0xD0 // Модуль реального времени.
-#define AT24C32_ADDRESS 0xAE // eeprom 4 килобайта 24C32N
 
 unsigned char* i2c_result;
 unsigned char i2c_state;
