@@ -25,14 +25,6 @@
 #include "tools/timer16.h"
 #include "tools/zs042.h"
 
-byte decToBcd(byte val){
-  return ( (val/10*16) + (val%10) );
-}
-
-byte bcdToDec(byte val){
-  return ( (val/16*10) + (val%16) );
-}
-
 unsigned char hexToCharOne(char c) {
   switch(c) {
     case '0' : return 0x00;
@@ -256,19 +248,28 @@ void zs042LoadAlarm(byte n, struct rec_alarm *alarm) {
   i2c_inout(commandI2CData.data, commandI2CData.size, (byte*) &alarms[0], &callBackForLoadAlarm);
 }
 
-int main(void) {
-  // Разрешить светодиод arduino pro mini.
-  DDRB |= _BV(DDB5);
+void start(void) {
   timer_init(); // Переполнение таймера примерно 1 раз в секунду
   uart_async_init(); // Прерывания для ввода/вывода через USART
-  i2c_init();
+  uart_readln(&commands_reciver); // Процедура принимает построчный ввод команд с UASART
+  i2c_init(); // Прерывание I2C Шины
   queue_init();  // Очередь диспетчера задач (главный цикл)
   //int0_init(); // Прерывание INT0 по спадающей границе. Для RTC ZA-042.
+  zs042_init_time(&current_time);  // Запрос времени без преррываний
+}
+
+int main(void) {
+  start();
   sei();
-  uart_readln(&commands_reciver);
 #ifdef _DEBUG
   uart_writeln("start");
 #endif
+  uart_writelnHEX(zs042_seconds);
+  uart_writelnHEX(current_time.minut);
+  uart_writelnHEX(current_time.hour);
+  uart_writelnHEX(current_time.month);
+  uart_writelnHEX(current_time.dayOfMonth);
+  uart_writelnHEX(current_time.dayOfWeek);
   // Бесконечный цикл с энергосбережением.
   for(;;) {
     switch(queue_getTask()) {

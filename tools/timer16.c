@@ -79,6 +79,8 @@ ISR (TIMER1_OVF_vect) {
 }
 
 void timer_init() {
+  // Разрешить светодиод arduino pro mini.
+  DDRB |= _BV(DDB5);
   // Делитель счетчика 256 (CS10=0, CS11=0, CS12=1).
   // 256 * 65536 = 16 777 216 (тактов)
   TCCR1B |= _BV(CS12);

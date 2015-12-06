@@ -2,6 +2,7 @@
 #define __ZS042_H_ 1
 #include "timer16.h"
 #include "queue_tasks.h"
+#include "common.h"
 
 // Идентификаторы  I2C
 #define DS3231_ADDRESS 0xD0 // Модуль реального времени.
@@ -20,4 +21,8 @@
 #define AT24C32_ALARMS_BLOCK_BYTES_BY_RECORD 16
 #define AT24C32_ALARMS_BLOCK_MAX_REC_COUNT 16
 #define AT24C32_ALARMS_BLOCK_LEN (AT24C32_ALARMS_BLOCK_BYTES_BY_RECORD * AT24C32_ALARMS_BLOCK_MAX_REC_COUNT)
+byte zs042_seconds;
+
+void zs042_init_time(struct rec_data_time *time);
+
 #endif
