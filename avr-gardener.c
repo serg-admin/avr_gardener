@@ -183,6 +183,9 @@ void eeprom_24C32N_clean(byte* adr) {
 }
 
 void relay_touch(byte block, byte touching, byte values) {
+  uart_writeln("==");
+  uart_writelnHEX(touching);
+  uart_writelnHEX(values);
   if (block == 1) {
     byte p;
     DDRB |= 0b00000011;
@@ -207,24 +210,24 @@ void relay_touch(byte block, byte touching, byte values) {
   }
 }
 
-struct rec_alarm alarms[10];
+struct rec_alarm alarm;
 
-void callBackForLoadAlarm(unsigned char result) {
+void callBackForLoadAlarmShow(unsigned char result) {
   switch(result) {
     case TW_MR_DATA_NACK : //Результат получен
-      uart_writelnHEX(alarms[0].alarm_time.minut);
-      uart_writelnHEX(alarms[0].alarm_time.hour);
-      uart_writelnHEX(alarms[0].alarm_time.dayOfMonth);
-      uart_writelnHEX(alarms[0].flags.b);
-      uart_writelnHEX(alarms[0].task.task_id);
-      if (alarms[0].flags.f.reserved1) uart_write("1"); else uart_write("0");
-      if (alarms[0].flags.f.minut) uart_write("1"); else uart_write("0");
-      if (alarms[0].flags.f.hour) uart_write("1"); else uart_write("0");
-      if (alarms[0].flags.f.dayOfMonth) uart_write("1"); else uart_write("0");
-      if (alarms[0].flags.f.month) uart_write("1"); else uart_write("0");
-      if (alarms[0].flags.f.year) uart_write("1"); else uart_write("0");
-      if (alarms[0].flags.f.dayOfWeek) uart_write("1"); else uart_write("0");
-      if (alarms[0].flags.f.enable) uart_writeln("1"); else uart_writeln("0");
+      uart_writelnHEX(alarm.alarm_time.minut);
+      uart_writelnHEX(alarm.alarm_time.hour);
+      uart_writelnHEX(alarm.alarm_time.dayOfMonth);
+      uart_writelnHEX(alarm.flags.b);
+      uart_writelnHEX(alarm.task.task_id);
+      if (alarm.flags.f.reserved1) uart_write("1"); else uart_write("0");
+      if (alarm.flags.f.minut) uart_write("1"); else uart_write("0");
+      if (alarm.flags.f.hour) uart_write("1"); else uart_write("0");
+      if (alarm.flags.f.dayOfMonth) uart_write("1"); else uart_write("0");
+      if (alarm.flags.f.month) uart_write("1"); else uart_write("0");
+      if (alarm.flags.f.year) uart_write("1"); else uart_write("0");
+      if (alarm.flags.f.dayOfWeek) uart_write("1"); else uart_write("0");
+      if (alarm.flags.f.enable) uart_writeln("1"); else uart_writeln("0");
       break;
     default : 
       uart_write("ERROR ");
@@ -232,7 +235,28 @@ void callBackForLoadAlarm(unsigned char result) {
   }
 }
 
-void zs042LoadAlarm(byte n, struct rec_alarm *alarm) {
+void callBackForLoadAlarm(unsigned char result) {
+  switch(result) {
+    case TW_MR_DATA_NACK : //Результат получен
+      if ((alarm.flags.b & 0b11111100) == 0b10000100) { // Если ежедневный будильник
+        if ((alarm.alarm_time.minut == current_time.minut) && 
+            (alarm.alarm_time.hour == current_time.hour)) {
+          uart_writelnHEX(alarm.alarm_time.minut);
+          uart_writelnHEX(alarm.task.task_id);
+          uart_writelnHEX(alarm.task.data[0]);
+          uart_writelnHEX(alarm.task.data[1]);
+          queue_putTask2b(alarm.task.task_id, alarm.task.data[0], alarm.task.data[1]);
+        }
+      }
+      break;
+    default : 
+      uart_write("ERROR ");
+      uart_writelnHEX(result);
+  }
+}
+
+byte zs042LoadAlarm(byte n, byte show) {
+  if (i2c_state) return i2c_state;
   // Установка адреса
   commandI2CData.data[0] = 03; // Размер блока установки адреса
   commandI2CData.data[1] = AT24C32_ADDRESS; // Адресс для записи
@@ -245,7 +269,9 @@ void zs042LoadAlarm(byte n, struct rec_alarm *alarm) {
   commandI2CData.data[5] = AT24C32_ADDRESS + 1; // Адресс для чтения
   commandI2CData.data[6] = 16;
   commandI2CData.size = 7;
-  i2c_inout(commandI2CData.data, commandI2CData.size, (byte*) &alarms[0], &callBackForLoadAlarm);
+  //uart_writelnHEXEx(commandI2CData.data, 7);
+  if (show) return i2c_inout(commandI2CData.data, commandI2CData.size, (byte*) &alarm, &callBackForLoadAlarmShow);
+  else return i2c_inout(commandI2CData.data, commandI2CData.size, (byte*) &alarm, &callBackForLoadAlarm);
 }
 
 void start(void) {
@@ -258,21 +284,26 @@ void start(void) {
   zs042_init_time(&current_time);  // Запрос времени без преррываний
 }
 
+void doFetchDailyAlarm(byte first, byte last) {
+  if ( zs042LoadAlarm(first, 0) == I2C_STATE_FREE ) first++;
+  else if (first < last)  queue_putTask2b(DO_FETCH_DAILY_ALARM ,first, last);
+}
+
 int main(void) {
   start();
   sei();
-#ifdef _DEBUG
+//#ifdef _DEBUG
   uart_writeln("start");
-#endif
-  uart_writelnHEX(zs042_seconds);
-  uart_writelnHEX(current_time.minut);
-  uart_writelnHEX(current_time.hour);
-  uart_writelnHEX(current_time.month);
-  uart_writelnHEX(current_time.dayOfMonth);
-  uart_writelnHEX(current_time.dayOfWeek);
+//#endif
   // Бесконечный цикл с энергосбережением.
   for(;;) {
     switch(queue_getTask()) {
+      case DO_REFRESH_TIME :
+        timer1RefreshTime(); 
+        break; 
+      case DO_FETCH_DAILY_ALARM :
+        doFetchDailyAlarm(queue_tasks_current.data[0], queue_tasks_current.data[1]);
+        break;
       case DO_COMMAND_INOUT_I2C : // Чтение данных из I2C и вывод в USART
         i2c_inout(commandI2CData.data, commandI2CData.size, commandI2CData.reciveBuf, &callBackForI2CCommand);
         break;
@@ -283,7 +314,7 @@ int main(void) {
         relay_touch(1, queue_tasks_current.data[0], queue_tasks_current.data[1]);
         break;
       case DO_LOAD_ALARM :
-        zs042LoadAlarm(queue_tasks_current.data[0], &alarms[0]);
+        zs042LoadAlarm(queue_tasks_current.data[0], 1);
         break;
       default : sleep_mode();
     }

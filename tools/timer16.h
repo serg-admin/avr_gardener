@@ -2,6 +2,12 @@
 #define __TIMER16_H_ 1
 #include <avr/io.h>
 #include "queue_tasks.h"
+#include <avr/interrupt.h>
+#include <avr/sleep.h>
+#include "uart_async.h"
+#include "common.h"
+#include "i2c_async.h"
+#include "../avr-gardener.h"
 
 
 struct rec_data_time { // 6 байт
@@ -11,6 +17,8 @@ struct rec_data_time { // 6 байт
   byte month;
   byte dayOfWeek;
 } current_time;
+
+#include "zs042.h"
 
 struct rec_byte_time_flags {
   // Флажки - какие поля проверять для срабатывания
@@ -46,6 +54,7 @@ union un_alarm_to_array {
 
 void timer_init();
 void timer1PutTask(uint16_t delay, void (*func)(uint8_t*), uint8_t* data);
+void timer1RefreshTime(void);
 
 
 #endif

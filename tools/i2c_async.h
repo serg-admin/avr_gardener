@@ -1,6 +1,12 @@
 #ifndef __i2c_async_H_
 #define __i2c_async_H_
 #include <util/twi.h>
+#include <avr/io.h>
+#include <util/twi.h>
+#include <avr/interrupt.h>
+#include "uart_async.h"
+#include "common.h"
+#include "timer16.h"
 #define I2C_STATE_FREE 0x00
 #define I2C_STATE_STOPPING 0x01
 #define I2C_STATE_INOUT 0x03
@@ -9,6 +15,15 @@
 
 unsigned char* i2c_result;
 unsigned char i2c_state;
+
+#define HEX_CMD_MAX_SIZE 36 // Длина шеснадцатиричной команды для отправки на I2C
+#define HEX_CMD_RECIVE_MAX_SIZE 32 // Длина результата получаемого с I2C (без учета префикса)
+struct rec_str_commandI2C {
+  byte data[HEX_CMD_MAX_SIZE];
+  byte size;
+  byte reciveBuf[HEX_CMD_RECIVE_MAX_SIZE];
+  byte reciveBufSize;
+} commandI2CData;
 
 /**
  * @brief Осущетвляет отправку/прием/рестрат I2C шины в соответсвии 

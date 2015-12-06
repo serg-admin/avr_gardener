@@ -1,9 +1,4 @@
 #include "timer16.h"
-#include <avr/io.h>
-#include <avr/interrupt.h>
-#include <avr/sleep.h>
-#include "uart_async.h"
-#include "common.h"
 //Настройки магающей лампочки
 #define ledOn PORTB |= _BV(PINB5)  
 #define ledOff PORTB &= ~(_BV(PINB5))
@@ -24,6 +19,27 @@ struct rec_timerTask {
   void (*func)(byte* params);
   byte* data;
 } A, B;
+
+void timer1IncrementCurrentTime() {
+  if ((++zs042_seconds) > 59) {
+    zs042_seconds = 0;
+    if ((++current_time.minut) > 59) {
+      current_time.minut = 0;
+      if ((++current_time.hour) > 23) {
+        current_time.hour = 0;
+        if ((++current_time.dayOfWeek) > 7) current_time.dayOfWeek = 1;
+        current_time.dayOfMonth++;
+        if ((current_time.dayOfMonth > 31) || 
+            ((current_time.dayOfMonth > 30) && ((current_time.month == 4) || (current_time.month == 6) || 
+                                                (current_time.month == 9) || (current_time.month == 11)) ) ||
+            ((current_time.dayOfMonth > 29) && (current_time.month == 2))) {
+          if ((++current_time.month) > 12) current_time.month = 1;            
+        }
+      }
+    }
+  }
+    
+}
 
 void timer1PutTask(uint16_t delay, void (*func)(byte*), byte* data) {
   //uart_writelnHEX(TIMSK1);
@@ -52,6 +68,35 @@ void timer1PutTask(uint16_t delay, void (*func)(byte*), byte* data) {
   }
 }
 
+void timer1RefreshTimeCallBack(unsigned char result) {
+  switch(result) {
+    case TW_MR_DATA_NACK : //Результат получен
+      zs042_seconds = bcdToDec(commandI2CData.reciveBuf[0]);
+      current_time.minut = bcdToDec(commandI2CData.reciveBuf[1]);
+      current_time.hour = bcdToDec(commandI2CData.reciveBuf[2]);
+      current_time.dayOfWeek = bcdToDec(commandI2CData.reciveBuf[3]);
+      current_time.dayOfMonth = bcdToDec(commandI2CData.reciveBuf[4]);
+      current_time.month = bcdToDec(commandI2CData.reciveBuf[5]);
+      break;
+    default : 
+      uart_write("ERROR ");
+      uart_writelnHEX(result);
+  }
+}
+
+void timer1RefreshTime(void) {
+  // Отправка адреса для чтения
+  commandI2CData.data[0] = 2; // Размер блока установки адреса
+  commandI2CData.data[1] = DS3231_ADDRESS; // Адресс для записи
+  commandI2CData.data[2] = 0;
+  // Блок чтения с I2C
+  commandI2CData.data[3] = 2; // Размер блока чтения
+  commandI2CData.data[4] = DS3231_ADDRESS + 1; // Адресс для чтения
+  commandI2CData.data[5] = 6;
+  commandI2CData.size = 6;
+  i2c_inout(commandI2CData.data, commandI2CData.size, commandI2CData.reciveBuf, &timer1RefreshTimeCallBack);
+}
+
 ISR (TIMER1_COMPA_vect) {
   A.func(A.data);
   TIMER1_A_DIS;
@@ -64,17 +109,19 @@ ISR (TIMER1_COMPB_vect) {
 
 // Прерывание переполнения таймера
 ISR (TIMER1_OVF_vect) {
-  static byte timer1_position = 0; // Переключатель задач таймера
   cli();
   TCNT1 += 3036; // Корректировка времени срабатывания преполнения к одной секунде.
+  timer1IncrementCurrentTime();
   ledSw;
-  /*switch (timer1_position) {
-    case 0 : 
-      commands_reciver("I02D00002D107");
+  //uart_writelnHEX(zs042_seconds);
+  switch (zs042_seconds) {
+    case 2 : 
+      queue_putTask(DO_REFRESH_TIME);
       break;
-  }*/
-  timer1_position++;
-  if (timer1_position > 59) timer1_position = 0;
+    case 3 : // Вставляем задачу поиска будильников
+      queue_putTask2b(DO_FETCH_DAILY_ALARM, 0, AT24C32_ALARMS_BLOCK_MAX_REC_COUNT);
+      break;  
+  }
   sei();
 }
 
@@ -88,4 +135,5 @@ void timer_init() {
   // Включить обработчик прерывания переполнения счетчика таймера.
   TIMSK1 = _BV(TOIE1);
   // PRR &= ~(_BV(PRTIM1));
+  TCNT1 += 3036;
 }

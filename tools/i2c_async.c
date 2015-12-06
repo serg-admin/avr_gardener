@@ -1,10 +1,4 @@
-#include <avr/io.h>
-#include <util/twi.h>
-#include <avr/interrupt.h>
-#include "uart_async.h"
-#include "common.h"
 #include "i2c_async.h"
-#include "timer16.h"
 
 char i2c_dev_addr;
 unsigned char i2c_result_pos;
@@ -34,7 +28,8 @@ void i2c_init(void) {
   //PCMSK1 &= ~(_BV(PCINT12));
   //PCMSK1 &= ~(_BV(PCINT13));
   
-  TWBR = 0x05; // Делитель = TWBR * 2.
+  //TWBR = 0x05; // Делитель = TWBR * 2.
+  TWBR = 0x80; // Делитель = TWBR * 2.
   TWCR = 0; // Включить прерывание.
   i2c_state = I2C_STATE_FREE;
 }
@@ -73,13 +68,10 @@ unsigned char i2c_inout(unsigned char* script,
 
 void i2c_stop(unsigned char state) {
   TWCR = _BV(TWINT) | _BV(TWEN) | _BV(TWSTO); // Завершение передача
-  //SDA_WAIT_LEVEL;
   i2c_state = I2C_STATE_STOPPING;
+  if (i2c_callback != 0) i2c_callback(state);
   sei();
   timer1PutTask(200, &set_free, 0); // Задержка примерно 1/62500 * 30 секунды
-  //uart_writelnHEX(TIMSK1);
-  //set_free(0);
-  if (i2c_callback != 0) i2c_callback(state);
 }
 
 void i2c_init_next_block(void) {
