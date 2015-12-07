@@ -119,9 +119,10 @@ ISR (TIMER1_OVF_vect) {
       queue_putTask(DO_REFRESH_TIME);
       break;
     case 3 : // Вставляем задачу поиска будильников
-      queue_putTask2b(DO_FETCH_DAILY_ALARM, 0, AT24C32_ALARMS_BLOCK_MAX_REC_COUNT);
+      //queue_putTask2b(DO_FETCH_DAILY_ALARM, 0, AT24C32_ALARMS_BLOCK_MAX_REC_COUNT);
       break;  
   }
+  queue_putTask2b(DO_FETCH_DAILY_ALARM, 0, AT24C32_ALARMS_BLOCK_MAX_REC_COUNT);
   sei();
 }
 

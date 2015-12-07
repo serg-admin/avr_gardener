@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-
+use Digest::CRC qw(crc crc8 crc16);
 # Адрес начала блока с будильниками.
 $base_for_alarm = 3 * hex '0x20';
 # Размер одной записи будильника
@@ -7,7 +7,7 @@ $record_size = 16;
 
 # Время последнего срабатывания всегда 0;
 $last_alarm_time = '0000000000';
-print `stty 38400 /dev/ttyUSB0`;
+print `stty 38400 -F /dev/ttyUSB0`;
 open(PORT, ">/dev/ttyUSB0");
 
 open DB, "<regular_alarm.csv";
@@ -33,7 +33,10 @@ while(<DB>) {
       ($hour, $minut) = split ":", $time;
       $alarm_time = sprintf("%02X%02X000000", $minut, $hour);
     }
-    $result_str = $eeprom_init . $alarm_time . $last_alarm_time . $flags . $task_str;
+
+    $alarm_crc = crc($alarm_time . $last_alarm_time . $flags . $task_str);
+
+    $result_str = $eeprom_init . $alarm_time . $last_alarm_time . $flags . $task_str . $alarm_crc;
     # Определяем количество байт отправляемых в I2C шину
     $size = length($result_str)/2;
     $result_str = "I" . sprintf("%02X", $size) . $result_str;
@@ -41,4 +44,18 @@ while(<DB>) {
     print PORT "$result_str\n";
     sleep 1;
   }
+}
+
+sub crc {
+  my @hex    = ($_[0] =~ /(..)/g);
+  my @dec    = map { hex($_) } @hex;
+  my @bytes  = map { pack('C', $_) } @dec;
+  my $crc = 0;
+  for($i = 0; $i < @bytes; $i++ ) {
+    $crc = crc16($bytes[$i], $crc);
+  }
+
+  $crc = sprintf("%02X", $crc);
+  my @hexx    = ($crc =~ /(..)/g);
+  return "$hexx[1]$hexx[0]";
 }

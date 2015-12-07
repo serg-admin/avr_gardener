@@ -28,8 +28,8 @@ void i2c_init(void) {
   //PCMSK1 &= ~(_BV(PCINT12));
   //PCMSK1 &= ~(_BV(PCINT13));
   
-  //TWBR = 0x05; // Делитель = TWBR * 2.
-  TWBR = 0x80; // Делитель = TWBR * 2.
+  TWBR = 0x01; // Делитель = TWBR * 2.
+  //TWBR = 0x80; // Делитель = TWBR * 2.
   TWCR = 0; // Включить прерывание.
   i2c_state = I2C_STATE_FREE;
 }
@@ -71,7 +71,7 @@ void i2c_stop(unsigned char state) {
   i2c_state = I2C_STATE_STOPPING;
   if (i2c_callback != 0) i2c_callback(state);
   sei();
-  timer1PutTask(200, &set_free, 0); // Задержка примерно 1/62500 * 30 секунды
+  timer1PutTask(150, &set_free, 0); // Задержка примерно 1/62500 * 30 секунды
 }
 
 void i2c_init_next_block(void) {

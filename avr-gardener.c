@@ -17,6 +17,7 @@
 #include <avr/sleep.h>
 #define F_CPU 16000000
 #include <util/delay.h>
+#include <util/crc16.h>
 #include "avr-gardener.h"
 
 #include "tools/uart_async.h"
@@ -238,6 +239,10 @@ void callBackForLoadAlarmShow(unsigned char result) {
 void callBackForLoadAlarm(unsigned char result) {
   switch(result) {
     case TW_MR_DATA_NACK : //Результат получен
+      if ( get_crc16((byte *) &alarm, 14) != alarm.crc16 ) {
+        uart_write("CRC ERROR ");
+        uart_writelnHEX(alarm.num);
+      }
       if ((alarm.flags.b & 0b11111100) == 0b10000100) { // Если ежедневный будильник
         if ((alarm.alarm_time.minut == current_time.minut) && 
             (alarm.alarm_time.hour == current_time.hour)) {
@@ -269,6 +274,7 @@ byte zs042LoadAlarm(byte n, byte show) {
   commandI2CData.data[5] = AT24C32_ADDRESS + 1; // Адресс для чтения
   commandI2CData.data[6] = 16;
   commandI2CData.size = 7;
+  alarm.num = n;
   //uart_writelnHEXEx(commandI2CData.data, 7);
   if (show) return i2c_inout(commandI2CData.data, commandI2CData.size, (byte*) &alarm, &callBackForLoadAlarmShow);
   else return i2c_inout(commandI2CData.data, commandI2CData.size, (byte*) &alarm, &callBackForLoadAlarm);
@@ -286,7 +292,14 @@ void start(void) {
 
 void doFetchDailyAlarm(byte first, byte last) {
   if ( zs042LoadAlarm(first, 0) == I2C_STATE_FREE ) first++;
-  else if (first < last)  queue_putTask2b(DO_FETCH_DAILY_ALARM ,first, last);
+  if (first < last)  queue_putTask2b(DO_FETCH_DAILY_ALARM ,first, last);
+}
+
+void crc16test(byte b1, byte b2) {
+  uint16_t r = 0;
+  r = _crc16_update(r, b1);
+  r = _crc16_update(r, b2);
+  uart_writelnHEXEx((byte*) &r, 2);
 }
 
 int main(void) {
@@ -305,7 +318,11 @@ int main(void) {
         doFetchDailyAlarm(queue_tasks_current.data[0], queue_tasks_current.data[1]);
         break;
       case DO_COMMAND_INOUT_I2C : // Чтение данных из I2C и вывод в USART
-        i2c_inout(commandI2CData.data, commandI2CData.size, commandI2CData.reciveBuf, &callBackForI2CCommand);
+        while ( i2c_inout(commandI2CData.data, 
+                          commandI2CData.size, 
+                          commandI2CData.reciveBuf, 
+                          &callBackForI2CCommand) != I2C_STATE_FREE
+              ) sleep_mode();
         break;
       case DO_COMMAND_CLEAN_24C32N : // Очистка eeprom
         eeprom_24C32N_clean(queue_tasks_current.data);
@@ -315,6 +332,9 @@ int main(void) {
         break;
       case DO_LOAD_ALARM :
         zs042LoadAlarm(queue_tasks_current.data[0], 1);
+        break;
+      case DO_CRC16_TEST :
+        crc16test(queue_tasks_current.data[0], queue_tasks_current.data[1]);
         break;
       default : sleep_mode();
     }

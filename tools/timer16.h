@@ -42,6 +42,7 @@ struct rec_alarm { // 24 байта
   struct rec_data_time last_alarm_time; // 5 байт
   union un_byte_time_flags flags; // 1 байт. Флажки - какие поля проверять для срабатывания
   struct rec_task task; // 3 байт
+  uint16_t crc16;
   //==  Не сохраняемые данные ===
   struct rec_data_time next_alarm_time; // Храним только в памяти
   byte num; // номер будильника
