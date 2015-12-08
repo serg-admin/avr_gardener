@@ -53,11 +53,10 @@ unsigned char i2c_inout(unsigned char* script,
   if (i2c_state) return i2c_state;
   i2c_state = I2C_STATE_INOUT;
   i2c_buf = script;
-  
   i2c_size = size;
   i2c_result = result;
   i2c_result_end_pos = i2c_buf_pos = i2c_result_pos = 0;
-  i2c_end_of_block = script[i2c_buf_pos++] + 1;
+  i2c_end_of_block = i2c_buf[i2c_buf_pos++] + 1;
   i2c_callback = callback;
   TWCR = _BV(TWINT) | _BV(TWSTA) | _BV(TWEN) | _BV(TWIE); // Send START condition.
   return I2C_STATE_FREE;
@@ -66,7 +65,14 @@ unsigned char i2c_inout(unsigned char* script,
 void i2c_stop(unsigned char state) {
   TWCR = _BV(TWINT) | _BV(TWEN) | _BV(TWSTO); // Завершение передача
   i2c_state = I2C_STATE_STOPPING;
-  if (i2c_callback != 0) i2c_callback(state);
+  if (i2c_callback != 0) {
+    if (i2c_callback(state)){
+      i2c_result_end_pos = i2c_buf_pos = i2c_result_pos = 0;
+      i2c_end_of_block = i2c_buf[i2c_buf_pos++] + 1;
+      TWCR = _BV(TWINT) | _BV(TWSTA) | _BV(TWEN) | _BV(TWIE); // Send START condition.
+      return;
+    }
+  }
   sei();
   timer1PutTask(150, &set_free, 0); // Задержка примерно 1/62500 * 30 секунды
 }
