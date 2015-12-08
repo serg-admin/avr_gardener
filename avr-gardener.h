@@ -9,7 +9,9 @@
 #define DO_COMMAND_CLEAN_24C32N 0xE0 // Очистить eeprom 24C32N
 #define DO_TOUCH_RELAY_A 0x31
 #define DO_LOAD_ALARM 0x35 // Читает будильник и выводит параметры в USART
-#define DO_CRC16_TEST 0xF0 // Читает будильник и выводит параметры в USART
+
+#define ALARM_EXEC 0
+#define ALARM_SHOW 1
 
 extern void eeprom_24C32N_clean(byte* adr);
 

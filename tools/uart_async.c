@@ -76,6 +76,8 @@ void uart_putChar(char c) {
   UCSR0B |= _BV(UDRIE0);
 }
 
+
+
 // Отправляет 0 терменированную строку в очередь USART.
 void uart_write(char* s) {
   unsigned char i = 0;
@@ -87,22 +89,12 @@ void uart_write(char* s) {
 // Отправляет строку в очередь USART. В случае если очередь занята - ждет.
 void uart_writeln(char* s) {
   uart_write(s);
-  uart_putChar('\n');
-  uart_putChar('\r');
+  uart_write("\n\r");
 }
 
 char uart_halfchar_to_hex(unsigned char c) {
+  if (c < 10) return c + 48;
   switch (c) {
-    case 0 : return '0';
-    case 1 : return '1';
-    case 2 : return '2';
-    case 3 : return '3';
-    case 4 : return '4';
-    case 5 : return '5';
-    case 6 : return '6';
-    case 7 : return '7';
-    case 8 : return '8';
-    case 9 : return '9';
     case 10 : return 'A';
     case 11 : return 'B';
     case 12 : return 'C';
@@ -118,6 +110,13 @@ void _uart_writeHEX(unsigned char c) {
   uart_putChar(uart_halfchar_to_hex(c & 0x0F));
 }
 
+void _log(uint16_t code) {
+  uart_write("E-");
+  _uart_writeHEX(((unsigned char*)&code)[1]);
+  _uart_writeHEX(((unsigned char*)&code)[0]);
+  uart_writeln("");
+}
+
 void uart_writelnHEXEx(unsigned char* c, unsigned char size) {
   unsigned char i;
   uart_write("0x");
@@ -125,8 +124,7 @@ void uart_writelnHEXEx(unsigned char* c, unsigned char size) {
     _uart_writeHEX(c[i]);
     uart_putChar(' ');
   }
-  uart_putChar('\n');
-  uart_putChar('\r');
+  uart_writeln("");
 }
 
 void uart_writelnHEX(unsigned char c) {

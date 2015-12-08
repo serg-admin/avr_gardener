@@ -68,7 +68,7 @@ void timer1PutTask(uint16_t delay, void (*func)(byte*), byte* data) {
   }
 }
 
-void timer1RefreshTimeCallBack(unsigned char result) {
+byte timer1RefreshTimeCallBack(unsigned char result) {
   switch(result) {
     case TW_MR_DATA_NACK : //Результат получен
       zs042_seconds = bcdToDec(commandI2CData.reciveBuf[0]);
@@ -82,6 +82,7 @@ void timer1RefreshTimeCallBack(unsigned char result) {
       uart_write("ERROR ");
       uart_writelnHEX(result);
   }
+  return 0;
 }
 
 void timer1RefreshTime(void) {
@@ -119,10 +120,10 @@ ISR (TIMER1_OVF_vect) {
       queue_putTask(DO_REFRESH_TIME);
       break;
     case 3 : // Вставляем задачу поиска будильников
-      //queue_putTask2b(DO_FETCH_DAILY_ALARM, 0, AT24C32_ALARMS_BLOCK_MAX_REC_COUNT);
+      queue_putTask2b(DO_FETCH_DAILY_ALARM, 0, AT24C32_ALARMS_BLOCK_MAX_REC_COUNT);
       break;  
   }
-  queue_putTask2b(DO_FETCH_DAILY_ALARM, 0, AT24C32_ALARMS_BLOCK_MAX_REC_COUNT);
+  _log(0xABCD);
   sei();
 }
 

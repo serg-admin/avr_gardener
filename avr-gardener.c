@@ -25,19 +25,11 @@
 #include "tools/queue_tasks.h"
 #include "tools/timer16.h"
 #include "tools/zs042.h"
+#include "tools/error.h"
 
 unsigned char hexToCharOne(char c) {
+  if ((c > 47) && (c<58)) return c-48;
   switch(c) {
-    case '0' : return 0x00;
-    case '1' : return 0x01;
-    case '2' : return 0x02;
-    case '3' : return 0x03;
-    case '4' : return 0x04;
-    case '5' : return 0x05;
-    case '6' : return 0x06;
-    case '7' : return 0x07;
-    case '8' : return 0x08;
-    case '9' : return 0x09;
     case 'A' : return 0x0A;
     case 'B' : return 0x0B;
     case 'C' : return 0x0C;
@@ -88,7 +80,7 @@ void commands_reciver(char* str) {
   if (str[0] == 'W') { // Спец задания
     pos = parse_HEX_string(&str[1], cmd);
     if (! pos) {
-      uart_writeln("PARS ERR");
+      _log(ERR_COM_PARSER_PARS_ERR);
       return;
     }
     uart_writelnHEXEx(cmd, 3);
@@ -103,7 +95,7 @@ void commands_reciver(char* str) {
       commandI2CData.reciveBufSize = 0;
       pos = parse_HEX_string(str + 1, commandI2CData.data);
       if (! pos) {
-        uart_writeln("PARS ERR");
+        _log(ERR_COM_PARSER_PARS_ERR);
         return;
       }
       tmp = 1;
@@ -115,12 +107,8 @@ void commands_reciver(char* str) {
       }
       commandI2CData.size = pos; // Размер буфера
       queue_putTask(DO_COMMAND_INOUT_I2C);
-    } else uart_writeln("Unknown command.");
+    } else _log(ERR_COM_PARSER_UNKNOW_COM);
   }
-}
-
-ISR (INT0_vect) {
-
 }
 
 ISR (BADISR_vect) {
@@ -129,7 +117,7 @@ ISR (BADISR_vect) {
   sei();
 }
 
-void callBackForI2CCommand(unsigned char result) {
+byte callBackForI2CCommand(unsigned char result) {
   switch(result) {
     case TW_MT_DATA_ACK : 
       uart_writeln("OK");
@@ -138,9 +126,9 @@ void callBackForI2CCommand(unsigned char result) {
       uart_writelnHEXEx(commandI2CData.reciveBuf, commandI2CData.reciveBufSize);
       break;
     default : 
-      uart_write("ERROR ");
-      uart_writelnHEX(result);
+      _log(ERR_I2C(result));
   }
+  return 0;
 }
 
 void int0_init(void) {
@@ -151,42 +139,41 @@ void int0_init(void) {
   EICRA &= ~(_BV(ISC00));
 }
 
-void eeprom_24C32N_clean_callBack(byte result) {
-  uint16_t addr = (i2c_result[0] * 256) + i2c_result[1];
+byte eeprom_24C32N_clean_callBack(byte result) {
+  uint16_t addr = (i2c_result[0] << 8) + i2c_result[1];
   if (addr > 4090) {
     uart_write("Stop at "); uart_writelnHEXEx(i2c_result, 2);
-    return;
+    return 0;
   }
     switch(result) {
     case TW_MT_DATA_ACK : 
       uart_writeln("OK");
       break;
     default : 
-      uart_write("ERROR ");
-      uart_writelnHEX(result);
+      _log(ERR_I2C(result));
   }
-  //_delay_ms(1);
-  while(i2c_state != I2C_STATE_FREE) sleep_mode();
-  eeprom_24C32N_clean(i2c_result);
+  queue_putTask2b(DO_COMMAND_CLEAN_24C32N, i2c_result[0], i2c_result[1]);
+  return 0;
 }
 
+/**
+ * @brief Инициирует обнуление 8-ми байт в EEPROM (AE).
+ * @param adr Адрес перврй ячейки eeprom - по завершению 
+ * будет увеличен на 8
+ */
 void eeprom_24C32N_clean(byte* adr) {
-  //Очистить 8 байт
-  //uart_write("Start at "); uart_writelnHEXEx(adr, 2);
-  commandI2CData.data[0] = 11; // Адрес устройства + 2 -байта номер ячейки + 8 байт нули = 11 
+  commandI2CData.data[0] = 11; // Длина скрипта
   commandI2CData.data[1] = AT24C32_ADDRESS;
   commandI2CData.data[2] = adr[0];
   commandI2CData.data[3] = adr[1];
-  for(commandI2CData.size = 4; commandI2CData.size < (4 + 8); commandI2CData.size++ ) commandI2CData.data[commandI2CData.size] = 0;
+  for(commandI2CData.size = 4; commandI2CData.size < (4 + 8); commandI2CData.size++ ) 
+    commandI2CData.data[commandI2CData.size] = 0;
   adr[1] += 8;
   if (adr[1] < 8) adr[0]++;
   i2c_inout(commandI2CData.data, commandI2CData.size, adr, &eeprom_24C32N_clean_callBack);
 }
 
 void relay_touch(byte block, byte touching, byte values) {
-  uart_writeln("==");
-  uart_writelnHEX(touching);
-  uart_writelnHEX(values);
   if (block == 1) {
     byte p;
     DDRB |= 0b00000011;
@@ -213,7 +200,7 @@ void relay_touch(byte block, byte touching, byte values) {
 
 struct rec_alarm alarm;
 
-void callBackForLoadAlarmShow(unsigned char result) {
+byte callBackForLoadAlarmShow(unsigned char result) {
   switch(result) {
     case TW_MR_DATA_NACK : //Результат получен
       uart_writelnHEX(alarm.alarm_time.minut);
@@ -231,36 +218,47 @@ void callBackForLoadAlarmShow(unsigned char result) {
       if (alarm.flags.f.enable) uart_writeln("1"); else uart_writeln("0");
       break;
     default : 
-      uart_write("ERROR ");
-      uart_writelnHEX(result);
+      _log(ERR_I2C(result));
   }
+  return 0;
 }
 
-void callBackForLoadAlarm(unsigned char result) {
+/**
+ * @brief Получает результат загрузки будильника с I2C шины. 
+ *    В случае если время пришло - ставит задачу в очередб на 
+ *    исполнение
+ * @param result
+ * @return В случае не совпадения контрольной сумма вернет не 0
+ *         (для повторения процесса чтения)
+ */
+byte executeLoadedAlarm(unsigned char result) {
   switch(result) {
     case TW_MR_DATA_NACK : //Результат получен
       if ( get_crc16((byte *) &alarm, 14) != alarm.crc16 ) {
-        uart_write("CRC ERROR ");
-        uart_writelnHEX(alarm.num);
+        _log(ERR_ALARM_CRC(alarm.num));
+        return 1;
       }
       if ((alarm.flags.b & 0b11111100) == 0b10000100) { // Если ежедневный будильник
         if ((alarm.alarm_time.minut == current_time.minut) && 
             (alarm.alarm_time.hour == current_time.hour)) {
-          uart_writelnHEX(alarm.alarm_time.minut);
-          uart_writelnHEX(alarm.task.task_id);
-          uart_writelnHEX(alarm.task.data[0]);
-          uart_writelnHEX(alarm.task.data[1]);
           queue_putTask2b(alarm.task.task_id, alarm.task.data[0], alarm.task.data[1]);
         }
       }
       break;
     default : 
-      uart_write("ERROR ");
-      uart_writelnHEX(result);
+      _log(ERR_I2C(result));
   }
+  return 0;
 }
 
-byte zs042LoadAlarm(byte n, byte show) {
+/**
+ * @brief Загружаем будильк и что-то с ним делаем
+ * @param n Номер загружаемого будильника
+ * @param do_some Код операции
+ * @return Возвращает статус шины I2C до запуска.
+ *  Если не 0 значит шина занята и задача не выполнена.
+ */
+byte zs042LoadAlarm(byte n, byte do_some) {
   if (i2c_state) return i2c_state;
   // Установка адреса
   commandI2CData.data[0] = 03; // Размер блока установки адреса
@@ -275,31 +273,26 @@ byte zs042LoadAlarm(byte n, byte show) {
   commandI2CData.data[6] = 16;
   commandI2CData.size = 7;
   alarm.num = n;
-  //uart_writelnHEXEx(commandI2CData.data, 7);
-  if (show) return i2c_inout(commandI2CData.data, commandI2CData.size, (byte*) &alarm, &callBackForLoadAlarmShow);
-  else return i2c_inout(commandI2CData.data, commandI2CData.size, (byte*) &alarm, &callBackForLoadAlarm);
+  switch (do_some) {
+    case ALARM_EXEC : return i2c_inout(commandI2CData.data, 
+                                       commandI2CData.size, 
+                                       (byte*) &alarm, 
+                                       &executeLoadedAlarm);
+    case ALARM_SHOW : return i2c_inout(commandI2CData.data, 
+                                       commandI2CData.size, 
+                                       (byte*) &alarm, 
+                                       &callBackForLoadAlarmShow);
+  }
+  return I2C_STATE_FREE;
 }
 
 void start(void) {
   timer_init(); // Переполнение таймера примерно 1 раз в секунду
   uart_async_init(); // Прерывания для ввода/вывода через USART
   uart_readln(&commands_reciver); // Процедура принимает построчный ввод команд с UASART
-  i2c_init(); // Прерывание I2C Шины
+  i2c_init(1); // Прерывание I2C Шины
   queue_init();  // Очередь диспетчера задач (главный цикл)
-  //int0_init(); // Прерывание INT0 по спадающей границе. Для RTC ZA-042.
   zs042_init_time(&current_time);  // Запрос времени без преррываний
-}
-
-void doFetchDailyAlarm(byte first, byte last) {
-  if ( zs042LoadAlarm(first, 0) == I2C_STATE_FREE ) first++;
-  if (first < last)  queue_putTask2b(DO_FETCH_DAILY_ALARM ,first, last);
-}
-
-void crc16test(byte b1, byte b2) {
-  uint16_t r = 0;
-  r = _crc16_update(r, b1);
-  r = _crc16_update(r, b2);
-  uart_writelnHEXEx((byte*) &r, 2);
 }
 
 int main(void) {
@@ -315,7 +308,14 @@ int main(void) {
         timer1RefreshTime(); 
         break; 
       case DO_FETCH_DAILY_ALARM :
-        doFetchDailyAlarm(queue_tasks_current.data[0], queue_tasks_current.data[1]);
+        // Если шина не занята переходим к следующему будильнику
+        queue_tasks_current.data[1] += 
+            (zs042LoadAlarm(queue_tasks_current.data[0], ALARM_EXEC) ? 0 : 1);
+        // Если будильник был последним, то не переходим к следующему будильнику
+        if (queue_tasks_current.data[0] < queue_tasks_current.data[1])
+            queue_putTask2b(DO_FETCH_DAILY_ALARM, 
+                          queue_tasks_current.data[0], 
+                          queue_tasks_current.data[1]);
         break;
       case DO_COMMAND_INOUT_I2C : // Чтение данных из I2C и вывод в USART
         while ( i2c_inout(commandI2CData.data, 
@@ -331,10 +331,7 @@ int main(void) {
         relay_touch(1, queue_tasks_current.data[0], queue_tasks_current.data[1]);
         break;
       case DO_LOAD_ALARM :
-        zs042LoadAlarm(queue_tasks_current.data[0], 1);
-        break;
-      case DO_CRC16_TEST :
-        crc16test(queue_tasks_current.data[0], queue_tasks_current.data[1]);
+        zs042LoadAlarm(queue_tasks_current.data[0], ALARM_SHOW);
         break;
       default : sleep_mode();
     }

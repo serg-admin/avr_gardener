@@ -42,7 +42,7 @@ struct rec_str_commandI2C {
 unsigned char i2c_inout(unsigned char* script,
                         unsigned char size,
                         unsigned char* result, 
-                        void (*callback)(unsigned char));
-void i2c_init(void);
+                        byte (*callback)(unsigned char));
+void i2c_init(byte divider);
 
 #endif

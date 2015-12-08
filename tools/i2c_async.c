@@ -8,28 +8,26 @@ unsigned char i2c_buf_pos;
 unsigned char i2c_size; // Размер полученного буфера
 unsigned char i2c_end_of_block; // Позиция окончания текуего блока
 unsigned char i2c_last_device_id;
-void (*i2c_callback)(unsigned char);
-
+byte (*i2c_callback)(unsigned char);
+/**
+ * @brief Обычно выполняется в отложенном режими, 
+ *        устанавливает флаг "I2C свободна"
+ * @param data неиспользуется, нужен для соответсвяя формату обратного 
+ *        вызова. Для отложенных по таймеру процедур.
+ */
 void set_free(byte* data) {
   i2c_state = I2C_STATE_FREE;
-  //uart_writeln("free");
 }
 
 /**
  * @brief Устанавливает первоначальное состояние переменных:
  *
  */
-void i2c_init(void) {
+void i2c_init(byte divider) {
   // Настраеваем прерывание ножки SDA, для ожидания установки состояния STOP.
-  DDRC  &= ~(_BV(DDC4));
-  DDRC  &= ~(_BV(DDC5));
+  DDRC  &= ~(_BV(DDC4) | _BV(DDC5));
   PORTC |= _BV(PC4) | _BV(PC5);
-  //PCICR |= _BV(PCIE1);
-  //PCMSK1 &= ~(_BV(PCINT12));
-  //PCMSK1 &= ~(_BV(PCINT13));
-  
-  TWBR = 0x01; // Делитель = TWBR * 2.
-  //TWBR = 0x80; // Делитель = TWBR * 2.
+  TWBR = divider; // Делитель = TWBR * 2.
   TWCR = 0; // Включить прерывание.
   i2c_state = I2C_STATE_FREE;
 }
@@ -51,15 +49,14 @@ void i2c_init(void) {
 unsigned char i2c_inout(unsigned char* script,
                         unsigned char size,
                         unsigned char* result, 
-                        void (*callback)(unsigned char)) {
+                        byte (*callback)(unsigned char)) {
   if (i2c_state) return i2c_state;
   i2c_state = I2C_STATE_INOUT;
   i2c_buf = script;
-  i2c_buf_pos = 0;
+  
   i2c_size = size;
   i2c_result = result;
-  i2c_result_end_pos = 0;
-  i2c_result_pos = 0;
+  i2c_result_end_pos = i2c_buf_pos = i2c_result_pos = 0;
   i2c_end_of_block = script[i2c_buf_pos++] + 1;
   i2c_callback = callback;
   TWCR = _BV(TWINT) | _BV(TWSTA) | _BV(TWEN) | _BV(TWIE); // Send START condition.
@@ -84,7 +81,7 @@ void i2c_init_next_block(void) {
   TWCR = _BV(TWINT) | _BV(TWSTA) | _BV(TWEN) | _BV(TWIE);
 }
 
-void i2c_inout_isp(unsigned char state) {
+static __inline__ void i2c_inout_isp(unsigned char state) {
   switch(state) {
     case TW_START : //Шина I2C переведена в состояние start transmission. Запрашиваем устройство.
       i2c_last_device_id = i2c_buf[i2c_buf_pos++];
@@ -155,12 +152,4 @@ ISR (TWI_vect) {
     i2c_state = I2C_STATE_FREE;
   }
   sei();
-}
-
-// Ожидание установки уровня SDA при остановке.
-ISR (PCINT1_vect) {
-/*  cli();
-  PCMSK1 &= ~(_BV(PCINT12));
-  if (i2c_state == I2C_STATE_STOPPING) i2c_state = I2C_STATE_FREE;
-  sei();*/
 }

@@ -41,4 +41,6 @@ void uart_writelnHEX(unsigned char c);
 // Строка завершается нулем. CallBack функция будет вызываться для каждой полученной строки.
 void uart_readln(void (*callback)(char*));
 
+void _log(uint16_t code);
+
 //#endif
