@@ -92,6 +92,11 @@ void commands_reciver(char* str) {
     }
   } else {
     if (str[0] == 'I') {
+      cli();
+      if (i2c_state || commandI2CData.task) {
+        _log();
+        return;
+      }
       commandI2CData.reciveBufSize = 0;
       pos = parse_HEX_string(str + 1, commandI2CData.data);
       if (! pos) {
@@ -325,7 +330,24 @@ int main(void) {
               ) sleep_mode();
         break;
       case DO_COMMAND_CLEAN_24C32N : // Очистка eeprom
-        eeprom_24C32N_clean(queue_tasks_current.data);
+        cli(); 
+        if (i2c_state || commandI2CData.task) { // Если шина занята откладываем задачу
+          queue_putTask2b(DO_COMMAND_CLEAN_24C32N, queue_tasks_current.data[0], queue_tasks_current.data[1]);
+          sei();
+          break;
+        }
+        commandI2CData.task = DO_COMMAND_CLEAN_24C32N
+        cli();
+        commandI2CData.data[0] = 11; // Длина скрипта
+        commandI2CData.data[1] = AT24C32_ADDRESS;
+        commandI2CData.data[2] = adr[0];
+        commandI2CData.data[3] = adr[1];
+        for(commandI2CData.size = 4; commandI2CData.size < (4 + 8); commandI2CData.size++ ) 
+          commandI2CData.data[commandI2CData.size] = 0;
+        adr[1] += 8;
+        if (adr[1] < 8) adr[0]++;
+        i2c_inout(commandI2CData.data, commandI2CData.size, adr, &eeprom_24C32N_clean_callBack);
+        commandI2CData.task = 0;
         break;
       case DO_TOUCH_RELAY_A : // Включение/выключение блока реле.
         relay_touch(1, queue_tasks_current.data[0], queue_tasks_current.data[1]);

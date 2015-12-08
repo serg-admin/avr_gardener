@@ -23,6 +23,7 @@ struct rec_str_commandI2C {
   byte size;
   byte reciveBuf[HEX_CMD_RECIVE_MAX_SIZE];
   byte reciveBufSize;
+  byte task;
 } commandI2CData;
 
 /**
