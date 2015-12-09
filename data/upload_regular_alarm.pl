@@ -55,7 +55,7 @@ sub crc {
     $crc = crc16($bytes[$i], $crc);
   }
 
-  $crc = sprintf("%02X", $crc);
+  $crc = sprintf("%04X", $crc);
   my @hexx    = ($crc =~ /(..)/g);
   return "$hexx[1]$hexx[0]";
 }
