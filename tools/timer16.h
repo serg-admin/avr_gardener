@@ -8,7 +8,7 @@
 #include "common.h"
 #include "i2c_async.h"
 #include "../avr-gardener.h"
-
+uint16_t timer16_start_value;
 
 struct rec_data_time { // 6 байт
   byte minut;

@@ -1,4 +1,5 @@
 #include "timer16.h"
+#include "error.h"
 //Настройки магающей лампочки
 #define ledOn PORTB |= _BV(PINB5)  
 #define ledOff PORTB &= ~(_BV(PINB5))
@@ -38,28 +39,25 @@ void timer1IncrementCurrentTime() {
       }
     }
   }
-    
 }
 
 void timer1PutTask(uint16_t delay, void (*func)(byte*), byte* data) {
-  //uart_writelnHEX(TIMSK1);
   while (1) { // Буду спать здесь пока не активирую прерывание
     if (! TIMER1_A_CHECK) {
       A.func = func;
       A.data = data;
       delay = TCNT1 + delay;
-      if (delay < TCNT_MIN) delay += TCNT_MIN;
+      if (delay < timer16_start_value) delay += timer16_start_value;
       TIFR1 |= _BV(OCF1A);
       OCR1A = delay;
       TIMER1_A_EN;
-      //uart_writelnHEX(TIMSK1);
       return;
     }
     if (! TIMER1_B_CHECK) {
       B.func = func;
       B.data = data;
       delay = TCNT1 + delay;
-      if (delay < TCNT_MIN) delay += TCNT_MIN;
+      if (delay < timer16_start_value) delay += timer16_start_value;
       OCR1B = delay;
       TIMER1_B_EN;
       return;
@@ -79,8 +77,7 @@ byte timer1RefreshTimeCallBack(unsigned char result) {
       current_time.month = bcdToDec(commandI2CData.reciveBuf[5]);
       break;
     default : 
-      uart_write("ERROR ");
-      uart_writelnHEX(result);
+      _log(ERR_I2C(result));
   }
   return 0;
 }
@@ -111,31 +108,42 @@ ISR (TIMER1_COMPB_vect) {
 // Прерывание переполнения таймера
 ISR (TIMER1_OVF_vect) {
   cli();
-  TCNT1 += 3036; // Корректировка времени срабатывания преполнения к одной секунде.
+  TCNT1 += timer16_start_value; // Корректировка времени срабатывания преполнения к одной секунде.
+  //TCNT1 +=  3036; // 0BDC   1 цикл в секунду
+  //TCNT1 += 63352; // F778 30 циклов в секунду 
+  //TCNT1 += 64171; // FAAB 48 циклов в секунду 
+  //TCNT1 += 64452; // FBC4 60 циклов в секунду
+  //TCNT1 += 64881; // FD71 100 циклов в секунду
   timer1IncrementCurrentTime();
   ledSw;
-  //uart_writelnHEX(zs042_seconds);
   switch (zs042_seconds) {
+    case 0 : 
+      if ((current_time.minut & 0b00001111) == 0b00001000)
+        queue_putTask(DO_PRINT_TIME); 
+      break;
     case 2 : 
-      queue_putTask(DO_REFRESH_TIME);
+      if (TCNT_MIN == timer16_start_value)
+        queue_putTask(DO_REFRESH_TIME);
       break;
     case 3 : // Вставляем задачу поиска будильников
       queue_putTask2b(DO_FETCH_DAILY_ALARM, 0, AT24C32_ALARMS_BLOCK_MAX_REC_COUNT);
       break;  
   }
-  _log(0xABCD);
   sei();
 }
 
 void timer_init() {
+  timer16_start_value = TCNT_MIN;
   // Разрешить светодиод arduino pro mini.
   DDRB |= _BV(DDB5);
   // Делитель счетчика 256 (CS10=0, CS11=0, CS12=1).
   // 256 * 65536 = 16 777 216 (тактов)
   TCCR1B |= _BV(CS12);
+  // Делитель счетчика 8 (CS10=0, CS11=1, CS12=0) - 60 кратное ускорение.
+  //TCCR1B |= _BV(CS11);
   //TCCR1B |= _BV(CS10); //Включить для мигания  4 -ре секунды
   // Включить обработчик прерывания переполнения счетчика таймера.
   TIMSK1 = _BV(TOIE1);
   // PRR &= ~(_BV(PRTIM1));
-  TCNT1 += 3036;
+  TCNT1 += timer16_start_value;
 }

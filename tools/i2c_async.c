@@ -67,6 +67,7 @@ void i2c_stop(unsigned char state) {
   i2c_state = I2C_STATE_STOPPING;
   if (i2c_callback != 0) {
     if (i2c_callback(state)){
+      // Повторное выполнение запроса
       i2c_result_end_pos = i2c_buf_pos = i2c_result_pos = 0;
       i2c_end_of_block = i2c_buf[i2c_buf_pos++] + 1;
       TWCR = _BV(TWINT) | _BV(TWSTA) | _BV(TWEN) | _BV(TWIE); // Send START condition.
@@ -74,7 +75,7 @@ void i2c_stop(unsigned char state) {
     }
   }
   sei();
-  timer1PutTask(150, &set_free, 0); // Задержка примерно 1/62500 * 30 секунды
+  timer1PutTask(2, &set_free, 0); // Задержка примерно 1/62500 * 30 секунды
 }
 
 void i2c_init_next_block(void) {

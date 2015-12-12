@@ -94,7 +94,7 @@ void commands_reciver(char* str) {
     if (str[0] == 'I') {
       cli();
       if (i2c_state || commandI2CData.task) {
-        _log();
+        _log(ERR_I2C_BUSY);
         return;
       }
       commandI2CData.reciveBufSize = 0;
@@ -144,19 +144,28 @@ void int0_init(void) {
   EICRA &= ~(_BV(ISC00));
 }
 
+/**
+ * @brief Обратный вызов для процедуры отчиски eeprom - 8 - байт очищено.
+ * Увеличивает текущий адрес на 8 и ставит в очередь задание на отчистку 
+ * следующих 8-ми байт.
+ * @param result статус I2C шины.
+ * @return Всегда 0.
+ */
+
 byte eeprom_24C32N_clean_callBack(byte result) {
-  uint16_t addr = (i2c_result[0] << 8) + i2c_result[1];
-  if (addr > 4090) {
+  if ((i2c_result[0] > 0x0E) && (i2c_result[1] > 0xFA)) /* (addr > 4090) */{
     uart_write("Stop at "); uart_writelnHEXEx(i2c_result, 2);
     return 0;
   }
-    switch(result) {
+  switch(result) {
     case TW_MT_DATA_ACK : 
       uart_writeln("OK");
       break;
     default : 
       _log(ERR_I2C(result));
   }
+  i2c_result[1] += 8;
+  if (i2c_result[1] < 8) i2c_result[0]++;
   queue_putTask2b(DO_COMMAND_CLEAN_24C32N, i2c_result[0], i2c_result[1]);
   return 0;
 }
@@ -164,7 +173,7 @@ byte eeprom_24C32N_clean_callBack(byte result) {
 /**
  * @brief Инициирует обнуление 8-ми байт в EEPROM (AE).
  * @param adr Адрес перврй ячейки eeprom - по завершению 
- * будет увеличен на 8
+ * будет увеличен на 8.
  */
 void eeprom_24C32N_clean(byte* adr) {
   commandI2CData.data[0] = 11; // Длина скрипта
@@ -178,10 +187,14 @@ void eeprom_24C32N_clean(byte* adr) {
   i2c_inout(commandI2CData.data, commandI2CData.size, adr, &eeprom_24C32N_clean_callBack);
 }
 
+void relay_init(void) {
+  DDRB  |= 0b00000011;
+  PORTB |= 0b00000011;
+}
+
 void relay_touch(byte block, byte touching, byte values) {
   if (block == 1) {
     byte p;
-    DDRB |= 0b00000011;
     for(p = 1; p < 9 ; p <<= 1) {
       if (p & touching) {
         switch(p) {
@@ -264,7 +277,13 @@ byte executeLoadedAlarm(unsigned char result) {
  *  Если не 0 значит шина занята и задача не выполнена.
  */
 byte zs042LoadAlarm(byte n, byte do_some) {
-  if (i2c_state) return i2c_state;
+  cli();
+  if (i2c_state || commandI2CData.task) {
+    sei();
+    return 1;
+  }
+  commandI2CData.task = DO_FETCH_DAILY_ALARM;
+  sei();
   // Установка адреса
   commandI2CData.data[0] = 03; // Размер блока установки адреса
   commandI2CData.data[1] = AT24C32_ADDRESS; // Адресс для записи
@@ -279,15 +298,20 @@ byte zs042LoadAlarm(byte n, byte do_some) {
   commandI2CData.size = 7;
   alarm.num = n;
   switch (do_some) {
-    case ALARM_EXEC : return i2c_inout(commandI2CData.data, 
-                                       commandI2CData.size, 
-                                       (byte*) &alarm, 
-                                       &executeLoadedAlarm);
-    case ALARM_SHOW : return i2c_inout(commandI2CData.data, 
-                                       commandI2CData.size, 
-                                       (byte*) &alarm, 
-                                       &callBackForLoadAlarmShow);
+    case ALARM_EXEC : 
+      i2c_inout(commandI2CData.data, 
+                commandI2CData.size, 
+                (byte*) &alarm, 
+                &executeLoadedAlarm);
+      break;
+    case ALARM_SHOW : 
+      i2c_inout(commandI2CData.data, 
+                commandI2CData.size, 
+                (byte*) &alarm, 
+                &callBackForLoadAlarmShow);
+      break;
   }
+  commandI2CData.task = 0;
   return I2C_STATE_FREE;
 }
 
@@ -298,6 +322,7 @@ void start(void) {
   i2c_init(1); // Прерывание I2C Шины
   queue_init();  // Очередь диспетчера задач (главный цикл)
   zs042_init_time(&current_time);  // Запрос времени без преррываний
+  relay_init();
 }
 
 int main(void) {
@@ -314,7 +339,7 @@ int main(void) {
         break; 
       case DO_FETCH_DAILY_ALARM :
         // Если шина не занята переходим к следующему будильнику
-        queue_tasks_current.data[1] += 
+        queue_tasks_current.data[0] += 
             (zs042LoadAlarm(queue_tasks_current.data[0], ALARM_EXEC) ? 0 : 1);
         // Если будильник был последним, то не переходим к следующему будильнику
         if (queue_tasks_current.data[0] < queue_tasks_current.data[1])
@@ -330,31 +355,44 @@ int main(void) {
               ) sleep_mode();
         break;
       case DO_COMMAND_CLEAN_24C32N : // Очистка eeprom
-        cli(); 
+        cli(); // Занимаем буфер команд I2C
         if (i2c_state || commandI2CData.task) { // Если шина занята откладываем задачу
           queue_putTask2b(DO_COMMAND_CLEAN_24C32N, queue_tasks_current.data[0], queue_tasks_current.data[1]);
           sei();
           break;
         }
-        commandI2CData.task = DO_COMMAND_CLEAN_24C32N
+        commandI2CData.task = DO_COMMAND_CLEAN_24C32N; // Заняли буфер
         cli();
         commandI2CData.data[0] = 11; // Длина скрипта
         commandI2CData.data[1] = AT24C32_ADDRESS;
-        commandI2CData.data[2] = adr[0];
-        commandI2CData.data[3] = adr[1];
+        commandI2CData.data[2] = queue_tasks_current.data[0];
+        commandI2CData.data[3] = queue_tasks_current.data[1];
         for(commandI2CData.size = 4; commandI2CData.size < (4 + 8); commandI2CData.size++ ) 
           commandI2CData.data[commandI2CData.size] = 0;
-        adr[1] += 8;
-        if (adr[1] < 8) adr[0]++;
-        i2c_inout(commandI2CData.data, commandI2CData.size, adr, &eeprom_24C32N_clean_callBack);
-        commandI2CData.task = 0;
+        commandI2CData.reciveBuf[0] = queue_tasks_current.data[0];
+        commandI2CData.reciveBuf[1] = queue_tasks_current.data[1];
+        i2c_inout(commandI2CData.data, 
+                  commandI2CData.size, 
+                  commandI2CData.reciveBuf, 
+                  &eeprom_24C32N_clean_callBack);
+        commandI2CData.task = 0; // Заняли шину - буфер можно отметить как свободный
         break;
       case DO_TOUCH_RELAY_A : // Включение/выключение блока реле.
         relay_touch(1, queue_tasks_current.data[0], queue_tasks_current.data[1]);
+        uart_write("touch ");
+        uart_writelnHEXEx(queue_tasks_current.data, 2);
         break;
       case DO_LOAD_ALARM :
         zs042LoadAlarm(queue_tasks_current.data[0], ALARM_SHOW);
         break;
+      case DO_PRINT_TIME :
+        _uart_writeHEX(decToBcd(current_time.hour));
+        uart_write(":");
+        _uart_writeHEX(decToBcd(current_time.minut));
+        uart_writeln("");
+        break;
+      case DO_COMMAND_SET_SPEED :
+        timer16_start_value = (queue_tasks_current.data[0] << 8) + queue_tasks_current.data[1];
       default : sleep_mode();
     }
   }
