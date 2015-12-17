@@ -31,6 +31,7 @@
   <VirtualDirectory Name="avr_gardener">
     <File Name="avr-gardener.h"/>
     <File Name="avr-gardener.c"/>
+    <File Name="todo.txt"/>
   </VirtualDirectory>
   <VirtualDirectory Name="tools">
     <File Name="tools/uart_async.c"/>

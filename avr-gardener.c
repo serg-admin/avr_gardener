@@ -144,6 +144,10 @@ void int0_init(void) {
   EICRA &= ~(_BV(ISC00));
 }
 
+void eeprom_24C32N_clean_next(byte* args) {
+  queue_putTask2b(DO_COMMAND_CLEAN_24C32N, args[0], args[1]);
+}
+
 /**
  * @brief Обратный вызов для процедуры отчиски eeprom - 8 - байт очищено.
  * Увеличивает текущий адрес на 8 и ставит в очередь задание на отчистку 
@@ -153,20 +157,22 @@ void int0_init(void) {
  */
 
 byte eeprom_24C32N_clean_callBack(byte result) {
-  if ((i2c_result[0] > 0x0E) && (i2c_result[1] > 0xFA)) /* (addr > 4090) */{
+  if (i2c_result[0] > 0x0F)/* (addr > 4090) */{
     uart_write("Stop at "); uart_writelnHEXEx(i2c_result, 2);
+    commandI2CData.task = 0;
     return 0;
   }
   switch(result) {
     case TW_MT_DATA_ACK : 
-      uart_writeln("OK");
+      uart_write("OK "); uart_writelnHEXEx(i2c_result, 2);
       break;
     default : 
       _log(ERR_I2C(result));
   }
   i2c_result[1] += 8;
   if (i2c_result[1] < 8) i2c_result[0]++;
-  queue_putTask2b(DO_COMMAND_CLEAN_24C32N, i2c_result[0], i2c_result[1]);
+  timer1PutTask(300, &eeprom_24C32N_clean_next, i2c_result);
+  //queue_putTask2b(DO_COMMAND_CLEAN_24C32N, i2c_result[0], i2c_result[1]);
   return 0;
 }
 
@@ -356,13 +362,13 @@ int main(void) {
         break;
       case DO_COMMAND_CLEAN_24C32N : // Очистка eeprom
         cli(); // Занимаем буфер команд I2C
-        if (i2c_state || commandI2CData.task) { // Если шина занята откладываем задачу
+        if (i2c_state || (commandI2CData.task && (commandI2CData.task != DO_COMMAND_CLEAN_24C32N))) { // Если шина занята откладываем задачу
           queue_putTask2b(DO_COMMAND_CLEAN_24C32N, queue_tasks_current.data[0], queue_tasks_current.data[1]);
           sei();
           break;
         }
         commandI2CData.task = DO_COMMAND_CLEAN_24C32N; // Заняли буфер
-        cli();
+        sei();
         commandI2CData.data[0] = 11; // Длина скрипта
         commandI2CData.data[1] = AT24C32_ADDRESS;
         commandI2CData.data[2] = queue_tasks_current.data[0];
@@ -375,7 +381,7 @@ int main(void) {
                   commandI2CData.size, 
                   commandI2CData.reciveBuf, 
                   &eeprom_24C32N_clean_callBack);
-        commandI2CData.task = 0; // Заняли шину - буфер можно отметить как свободный
+        // (освободим по завершению) commandI2CData.task = 0; // Заняли шину - буфер можно отметить как свободный
         break;
       case DO_TOUCH_RELAY_A : // Включение/выключение блока реле.
         relay_touch(1, queue_tasks_current.data[0], queue_tasks_current.data[1]);
